@@ -432,10 +432,14 @@ fn load_migemo_dict() -> Option<CompactDictionary> {
     // 1. exeと同じディレクトリ（配布用）
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            let exe_dict = exe_dir.join("migemo-compact-dict");
-            if let Ok(bytes) = fs::read(&exe_dict) {
-                log_debug(&format!("Loaded migemo dict (exe dir): {:?}", exe_dict));
-                return Some(CompactDictionary::new(&bytes));
+            for candidate in &[
+                exe_dir.join("migemo-compact-dict"),
+                exe_dir.join("assets").join("migemo-compact-dict"),
+            ] {
+                if let Ok(bytes) = fs::read(candidate) {
+                    log_debug(&format!("Loaded migemo dict (exe dir): {:?}", candidate));
+                    return Some(CompactDictionary::new(&bytes));
+                }
             }
         }
     }
