@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use regex::Regex;
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
 use rustmigemo::migemo::query::query;
@@ -5,6 +7,12 @@ use rustmigemo::migemo::regex_generator::RegexOperator;
 use rustmigemo::migemo::romaji_processor::RomajiProcessor;
 
 use crate::state::{AppState, Mode};
+
+static ROMAJI_PROCESSOR: OnceLock<RomajiProcessor> = OnceLock::new();
+
+fn get_romaji_processor() -> &'static RomajiProcessor {
+    ROMAJI_PROCESSOR.get_or_init(|| RomajiProcessor::new())
+}
 
 pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&CompactDictionary>) -> Vec<String> {
     if query_text.is_empty() {
@@ -14,7 +22,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
         };
     }
 
-    let romaji_proc = RomajiProcessor::new();
+    let romaji_proc = get_romaji_processor();
     let hiragana = romaji_proc.romaji_to_hiragana(query_text);
 
     let regex_str = if let Some(dict) = dict_opt {

@@ -48,18 +48,31 @@ pub fn load_snippets() -> Vec<(String, String)> {
     }
 
     let mut snippets = Vec::new();
-    if let Ok(entries) = fs::read_dir(snippets_dir) {
+    load_snippets_recursive(&snippets_dir, "", &mut snippets);
+    snippets
+}
+
+fn load_snippets_recursive(dir: &PathBuf, prefix: &str, out: &mut Vec<(String, String)>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        let mut dirs: Vec<PathBuf> = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "j2" || ext == "txt") {
-                let name = path.file_stem().unwrap().to_string_lossy().to_string();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.is_file() && path.extension().map_or(false, |ext| ext == "j2" || ext == "txt") {
+                let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+                let name = if prefix.is_empty() { stem } else { format!("{}/{}", prefix, stem) };
                 if let Ok(content) = fs::read_to_string(&path) {
-                    snippets.push((name, content));
+                    out.push((name, content));
                 }
             }
         }
+        for d in dirs {
+            let dir_name = d.file_name().unwrap().to_string_lossy().to_string();
+            let child_prefix = if prefix.is_empty() { dir_name } else { format!("{}/{}", prefix, dir_name) };
+            load_snippets_recursive(&d, &child_prefix, out);
+        }
     }
-    snippets
 }
 
 pub fn load_history() -> VecDeque<String> {
