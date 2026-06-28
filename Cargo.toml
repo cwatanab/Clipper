@@ -13,4 +13,3 @@ rustmigemo = { git = "https://github.com/oguna/rustmigemo.git" }
 regex = "1.11"
 chrono = "0.4"
 dirs = "5.0"
-encoding_rs = "0.8.35"

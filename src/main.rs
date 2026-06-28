@@ -1,6 +1,5 @@
 #![windows_subsystem = "windows"]
 
-use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
@@ -12,7 +11,6 @@ use std::time::Duration;
 
 use arboard::Clipboard;
 use chrono::Local;
-use encoding_rs;
 use minijinja::{context, Environment};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -458,101 +456,6 @@ fn load_migemo_dict() -> Option<CompactDictionary> {
     None
 }
 
-fn decode_dict(bytes: &[u8]) -> String {
-    // UTF-8 を最優先で試行
-    if let Ok(s) = std::str::from_utf8(bytes) {
-        return s.to_string();
-    }
-
-    // ヘッダの encoding 宣言を確認
-    let header_end = std::cmp::min(200, bytes.len());
-    let is_euc_jp = std::str::from_utf8(&bytes[..header_end])
-        .map(|h| h.contains("coding: euc-jp") || h.contains("coding: euc-japan"))
-        .unwrap_or(false);
-
-    if is_euc_jp {
-        let (decoded, _, _) = encoding_rs::EUC_JP.decode(bytes);
-        let result = decoded.into_owned();
-        if !result.is_empty() {
-            return result;
-        }
-    }
-
-    // 最終手段: EUC-JPとしてデコード
-    let (decoded, _, _) = encoding_rs::EUC_JP.decode(bytes);
-    decoded.into_owned()
-}
-
-fn load_skk_dict() -> Option<HashMap<String, Vec<String>>> {
-    let dict_dir = PathBuf::from(
-        std::env::var("APPDATA").unwrap_or_default()
-    ).join("clipper").join("dict");
-
-    let mut combined = HashMap::new();
-    let mut loaded = 0u32;
-
-    if let Ok(entries) = fs::read_dir(&dict_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            // SKK-JISYO.L, SKK-JISYO.M などのSKKテキスト辞書
-            if !name.to_uppercase().starts_with("SKK-JISYO") && name != "migemo-dict" {
-                continue;
-            }
-            if let Ok(bytes) = fs::read(&path) {
-                let content = decode_dict(&bytes);
-                if content.is_empty() {
-                    continue;
-                }
-                let is_migemo_dict = name == "migemo-dict";
-                for line in content.lines() {
-                    let line = line.trim();
-                    if line.is_empty() || line.starts_with(';') {
-                        continue;
-                    }
-                    if is_migemo_dict {
-                        // cmigemo migemo-dict形式: "reading\tvalue1\tvalue2\t..."
-                        if let Some(tab_idx) = line.find('\t') {
-                            let reading = line[..tab_idx].to_string();
-                            for value in line[tab_idx + 1..].split('\t') {
-                                if !value.is_empty() {
-                                    combined.entry(reading.clone())
-                                        .or_insert_with(Vec::new)
-                                        .push(value.to_string());
-                                }
-                            }
-                        }
-                    } else if let Some(space_idx) = line.find(' ') {
-                        // SKK-JISYO形式: "reading /value1/value2/"
-                        let reading = line[..space_idx].to_string();
-                        let values_part = &line[space_idx + 1..];
-                        if values_part.starts_with('/') && values_part.ends_with('/') {
-                            for value in values_part[1..values_part.len() - 1].split('/') {
-                                if !value.is_empty() {
-                                    combined.entry(reading.clone())
-                                        .or_insert_with(Vec::new)
-                                        .push(value.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-                loaded += 1;
-                log_debug(&format!("Loaded SKK dict: {:?} ({} entries)", path, combined.len()));
-            }
-        }
-    }
-
-    if loaded > 0 {
-        log_debug(&format!("Total SKK entries: {}", combined.len()));
-        Some(combined)
-    } else {
-        None
-    }
-}
-
 // カスタムメッセージ
 const WM_TRIGGER_SNIPPET: u32 = 0x8000 + 2;
 const WM_TRIGGER_HISTORY: u32 = 0x8000 + 3;
@@ -604,7 +507,6 @@ static EDIT_HWND: OnceLock<SafeHWND> = OnceLock::new();
 static LISTBOX_HWND: OnceLock<SafeHWND> = OnceLock::new();
 static OLD_EDIT_PROC: OnceLock<SafeWndProc> = OnceLock::new();
 static MIGEMO_DICT: OnceLock<CompactDictionary> = OnceLock::new();
-static SKK_DICT: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
 
 static BRUSH_BG: OnceLock<SafeHBRUSH> = OnceLock::new();
 static BRUSH_CTRL: OnceLock<SafeHBRUSH> = OnceLock::new();
@@ -727,35 +629,11 @@ fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&CompactDic
     let romaji_proc = RomajiProcessor::new();
     let hiragana = romaji_proc.romaji_to_hiragana(query_text);
 
-    let mut regex_str = if let Some(dict) = dict_opt {
+    let regex_str = if let Some(dict) = dict_opt {
         query(query_text.to_string(), dict, &RegexOperator::Default)
     } else {
         String::new()
     };
-
-    // SKK-JISYO辞書による漢字補完: ローマ字クエリに対して追加の漢字候補を正規表現に追加
-    if query_text.chars().all(|c| c.is_ascii()) && !hiragana.is_empty() && hiragana != query_text {
-        let katakana: String = hiragana.chars().map(|c| {
-            if ('ぁ'..='ん').contains(&c) {
-                char::from_u32(c as u32 + 0x60).unwrap_or(c)
-            } else {
-                c
-            }
-        }).collect();
-        if let Some(skk) = SKK_DICT.get() {
-            if let Some(kanji_entries) = skk.get(&hiragana) {
-                let escaped: Vec<String> = kanji_entries.iter()
-                    .map(|k| regex::escape(k))
-                    .collect();
-                let supplement = escaped.join("|");
-                if regex_str.is_empty() {
-                    regex_str = format!("({}|{}|{})", regex::escape(&hiragana), regex::escape(&katakana), supplement);
-                } else if regex_str.ends_with(')') {
-                    regex_str.insert_str(regex_str.len() - 1, &format!("|{}", supplement));
-                }
-            }
-        }
-    }
 
     let re_opt = Regex::new(&regex_str).ok();
 
@@ -1365,9 +1243,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_logging_thread();
     if let Some(dict) = load_migemo_dict() {
         let _ = MIGEMO_DICT.set(dict);
-    }
-    if let Some(skk) = load_skk_dict() {
-        let _ = SKK_DICT.set(skk);
     }
 
     let mut app_state = AppState {
