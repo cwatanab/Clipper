@@ -275,6 +275,19 @@ mod windows {
         pub fn CloseHandle(hObject: *mut c_void) -> BOOL;
         pub fn GetCurrentThreadId() -> u32;
         pub fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: BOOL) -> BOOL;
+        pub fn GetProcAddress(hModule: HINSTANCE, lpProcName: *const u8) -> *mut c_void;
+    }
+
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        pub fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: u32, pvAttribute: *const c_void, cbAttribute: u32) -> i32;
+    }
+
+    pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+
+    #[link(name = "uxtheme")]
+    unsafe extern "system" {
+        pub fn SetWindowTheme(hwnd: HWND, pszSubAppName: *const u16, pszSubIdList: *const u16) -> i32;
     }
 
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
@@ -330,6 +343,10 @@ mod windows {
     pub unsafe fn CloseHandle(_h: *mut std::ffi::c_void) -> i32 { 0 }
     pub unsafe fn GetCurrentThreadId() -> u32 { 0 }
     pub unsafe fn AttachThreadInput(_a: u32, _b: u32, _c: i32) -> i32 { 0 }
+    pub unsafe fn GetProcAddress(_m: HWND, _n: *const u8) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn DwmSetWindowAttribute(_h: HWND, _a: u32, _p: *const std::ffi::c_void, _c: u32) -> i32 { 0 }
+    pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    pub unsafe fn SetWindowTheme(_h: HWND, _n: *const u16, _i: *const u16) -> i32 { 0 }
 }
 
 pub use windows::*;

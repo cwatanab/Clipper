@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod darkmode;
 mod dict;
 mod filter;
 mod hook;
@@ -19,6 +20,8 @@ use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND, MIGEMO_DICT, WM_CLIPBOA
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    darkmode::apply();
+
     {
         let name = util::to_wstring("Global\\ClipperAppMutex");
         unsafe { win32::CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
@@ -62,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             hInstance: hinstance,
             hIcon: std::ptr::null_mut(),
             hCursor: win32::LoadCursorW(std::ptr::null_mut(), win32::IDC_ARROW),
-            hbrBackground: (win32::COLOR_3DFACE + 1) as win32::HBRUSH,
+            hbrBackground: win32::CreateSolidBrush(0x00202020),
             lpszMenuName: std::ptr::null(),
             lpszClassName: class_name.as_ptr(),
         };
@@ -86,6 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let _ = MAIN_HWND.set(SafeHWND(hwnd));
+        darkmode::apply_to_window(hwnd);
 
         let mut nid: win32::NOTIFYICONDATAW = std::mem::zeroed();
         nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;

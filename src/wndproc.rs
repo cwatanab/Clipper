@@ -1,5 +1,6 @@
 use arboard::Clipboard;
 
+use crate::darkmode;
 use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::state::Mode;
 use crate::ui;
@@ -74,6 +75,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 )
             };
             state::log_debug(&format!("ListBox control created: {:?}", hwnd_listbox));
+
+            darkmode::apply_to_control(hwnd_edit);
+            darkmode::apply_to_control(hwnd_listbox);
 
             let font_edit = util::create_ui_font("Segoe UI", -18);
             let font_listbox = util::create_ui_font("Segoe UI", -16);
