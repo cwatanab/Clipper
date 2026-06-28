@@ -1,7 +1,7 @@
 use arboard::Clipboard;
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_DARK_EDIT, BRUSH_DARK_LISTBOX, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -107,6 +107,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let _ = LISTBOX_HWND.set(SafeHWND(hwnd_listbox));
                 let _ = BRUSH_BG.set(SafeHBRUSH(brush_bg));
                 let _ = BRUSH_CTRL.set(SafeHBRUSH(brush_ctrl));
+
+                let brush_dark_edit = win32::CreateSolidBrush(0x001E1E1E);
+                let brush_dark_listbox = win32::CreateSolidBrush(0x001E1E1E);
+                let _ = BRUSH_DARK_EDIT.set(SafeHBRUSH(brush_dark_edit));
+                let _ = BRUSH_DARK_LISTBOX.set(SafeHBRUSH(brush_dark_listbox));
+
                 let _ = FONT_EDIT.set(SafeHFONT(font_edit));
                 let _ = FONT_LISTBOX.set(SafeHFONT(font_listbox));
 
@@ -122,6 +128,26 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 if code == 2 { // LBN_DBLCLK
                     ui::on_select();
                 }
+            }
+        }
+        win32::WM_CTLCOLOREDIT => {
+            let hdc = wparam as win32::HDC;
+            unsafe {
+                win32::SetTextColor(hdc, 0x00E0E0E0);
+                win32::SetBkColor(hdc, 0x001E1E1E);
+            }
+            if let Some(SafeHBRUSH(brush)) = BRUSH_DARK_EDIT.get() {
+                return *brush as win32::LRESULT;
+            }
+        }
+        win32::WM_CTLCOLORLISTBOX => {
+            let hdc = wparam as win32::HDC;
+            unsafe {
+                win32::SetTextColor(hdc, 0x00E0E0E0);
+                win32::SetBkColor(hdc, 0x001E1E1E);
+            }
+            if let Some(SafeHBRUSH(brush)) = BRUSH_DARK_LISTBOX.get() {
+                return *brush as win32::LRESULT;
             }
         }
         win32::WM_ACTIVATE => {
@@ -185,6 +211,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 unsafe { win32::DeleteObject(*brush) };
             }
             if let Some(SafeHBRUSH(brush)) = BRUSH_CTRL.get() {
+                unsafe { win32::DeleteObject(*brush) };
+            }
+            if let Some(SafeHBRUSH(brush)) = BRUSH_DARK_EDIT.get() {
+                unsafe { win32::DeleteObject(*brush) };
+            }
+            if let Some(SafeHBRUSH(brush)) = BRUSH_DARK_LISTBOX.get() {
                 unsafe { win32::DeleteObject(*brush) };
             }
             unsafe { win32::PostQuitMessage(0) };

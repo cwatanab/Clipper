@@ -60,6 +60,8 @@ pub static MIGEMO_DICT: OnceLock<CompactDictionary> = OnceLock::new();
 
 pub static BRUSH_BG: OnceLock<SafeHBRUSH> = OnceLock::new();
 pub static BRUSH_CTRL: OnceLock<SafeHBRUSH> = OnceLock::new();
+pub static BRUSH_DARK_EDIT: OnceLock<SafeHBRUSH> = OnceLock::new();
+pub static BRUSH_DARK_LISTBOX: OnceLock<SafeHBRUSH> = OnceLock::new();
 pub static FONT_EDIT: OnceLock<SafeHFONT> = OnceLock::new();
 pub static FONT_LISTBOX: OnceLock<SafeHFONT> = OnceLock::new();
 
