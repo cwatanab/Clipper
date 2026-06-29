@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod config;
 mod darkmode;
 mod dict;
 mod filter;
@@ -20,6 +21,9 @@ use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND, MIGEMO_DICT, WM_CLIPBOA
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = config::Config::load();
+    let _ = state::CONFIG.set(config);
+
     darkmode::apply();
 
     {
@@ -41,8 +45,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         mode: Mode::Snippet,
         visible: false,
         current_results: Vec::new(),
+        current_full_paths: Vec::new(),
         last_clipboard_value: String::new(),
         last_active_window: None,
+        is_dark: darkmode::is_dark_mode(),
+        current_folder: String::new(),
+        top_index: 0,
+        filter_generation: 0,
     };
 
     if let Ok(mut cb) = Clipboard::new() {
@@ -56,6 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         let hinstance = win32::GetModuleHandleW(std::ptr::null());
         let class_name = util::to_wstring("ClipperWindowClass");
+        let app_icon = win32::LoadIconW(hinstance, 1 as *const u16);
 
         let wnd_class = win32::WNDCLASSW {
             style: win32::CS_HREDRAW | win32::CS_VREDRAW,
@@ -63,21 +73,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cbClsExtra: 0,
             cbWndExtra: 0,
             hInstance: hinstance,
-            hIcon: std::ptr::null_mut(),
+            hIcon: app_icon,
             hCursor: win32::LoadCursorW(std::ptr::null_mut(), win32::IDC_ARROW),
-            hbrBackground: win32::CreateSolidBrush(0x00202020),
+            hbrBackground: std::ptr::null_mut(), // Handle background erasing manually
             lpszMenuName: std::ptr::null(),
             lpszClassName: class_name.as_ptr(),
         };
 
         win32::RegisterClassW(&wnd_class);
 
+        let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
+        let initial_h = (max_rows as i32) * 28 + 38;
+
         let hwnd = win32::CreateWindowExW(
             win32::WS_EX_TOPMOST | win32::WS_EX_TOOLWINDOW,
             class_name.as_ptr(),
             util::to_wstring("Clipper").as_ptr(),
-            win32::WS_POPUP | win32::WS_BORDER | win32::WS_DLGFRAME,
-            0, 0, 400, 300,
+            win32::WS_POPUP, // Borderless, we will draw the border in WM_PAINT
+            0, 0, 350, initial_h,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             hinstance,
@@ -89,7 +102,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let _ = MAIN_HWND.set(SafeHWND(hwnd));
-        darkmode::apply_to_window(hwnd);
 
         let mut nid: win32::NOTIFYICONDATAW = std::mem::zeroed();
         nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
@@ -97,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         nid.uID = 1;
         nid.uFlags = win32::NIF_MESSAGE | win32::NIF_ICON | win32::NIF_TIP;
         nid.uCallbackMessage = win32::WM_TRAYICON;
-        nid.hIcon = win32::LoadCursorW(std::ptr::null_mut(), win32::IDC_ARROW);
+        nid.hIcon = app_icon;
 
         let tip_w = util::to_wstring("Clipper - Snippet & Clipboard Manager");
         let tip_len = std::cmp::min(tip_w.len(), 127);

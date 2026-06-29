@@ -15,12 +15,12 @@ pub fn to_wstring(s: &str) -> Vec<u16> {
         .collect()
 }
 
-pub fn create_ui_font(name: &str, size: i32) -> win32::HFONT {
+pub fn create_ui_font(name: &str, size: i32, weight: i32) -> win32::HFONT {
     let name_w = to_wstring(name);
     unsafe {
         win32::CreateFontW(
             size, 0, 0, 0,
-            400,
+            weight,
             0, 0, 0,
             1,
             0, 0,
@@ -81,7 +81,14 @@ pub fn load_history() -> VecDeque<String> {
     if history_file.exists() {
         if let Ok(content) = fs::read_to_string(history_file) {
             if let Ok(history) = serde_json::from_str::<VecDeque<String>>(&content) {
-                return history;
+                let mut seen = std::collections::HashSet::new();
+                let mut unique_history = VecDeque::new();
+                for item in history {
+                    if seen.insert(item.clone()) {
+                        unique_history.push_back(item);
+                    }
+                }
+                return unique_history;
             }
         }
     }

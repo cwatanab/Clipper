@@ -163,6 +163,7 @@ mod windows {
     pub const LBS_NOTIFY: u32 = 0x0001;
     pub const LBS_HASSTRINGS: u32 = 0x0040;
     pub const LBS_NOINTEGRALHEIGHT: u32 = 0x0100;
+    pub const LBS_OWNERDRAWFIXED: u32 = 0x0010;
 
     pub const WS_EX_TOPMOST: u32 = 0x00000008;
     pub const WS_EX_TOOLWINDOW: u32 = 0x00000080;
@@ -172,13 +173,15 @@ mod windows {
     pub const COLOR_WINDOW: u32 = 5;
 
     pub const GWLP_WNDPROC: i32 = -4;
-
+    pub const EM_SETCUEBANNER: u32 = 0x1501;
     pub const EN_CHANGE: u16 = 0x0300;
     pub const WM_COMMAND: u32 = 0x0111;
     pub const WM_CREATE: u32 = 0x0001;
     pub const WM_DESTROY: u32 = 0x0002;
     pub const WM_SETFONT: u32 = 0x0030;
     pub const WM_ACTIVATE: u32 = 0x0006;
+    pub const WM_PAINT: u32 = 0x000F;
+    pub const WM_ERASEBKGND: u32 = 0x0014;
     pub const WA_INACTIVE: usize = 0;
 
     pub const LB_ADDSTRING: u32 = 0x0180;
@@ -187,10 +190,58 @@ mod windows {
     pub const LB_SETCURSEL: u32 = 0x0186;
     pub const LB_GETTEXT: u32 = 0x0189;
     pub const LB_GETTEXTLEN: u32 = 0x018A;
+    pub const LB_GETTOPINDEX: u32 = 0x018E;
     pub const LB_ERR: isize = -1;
+
+    pub type HKEY = *mut c_void;
+    pub const HKEY_CURRENT_USER: HKEY = 0x80000001 as HKEY;
+    pub const KEY_READ: u32 = 0x20019;
 
     pub const WM_CTLCOLOREDIT: u32 = 0x0133;
     pub const WM_CTLCOLORLISTBOX: u32 = 0x0134;
+    pub const WM_DRAWITEM: u32 = 0x002B;
+    pub const WM_MEASUREITEM: u32 = 0x002C;
+    pub const WM_SIZE: u32 = 0x0005;
+
+    pub const ODA_DRAWENTIRE: u32 = 0x0001;
+    pub const ODA_SELECT: u32 = 0x0002;
+    pub const ODA_FOCUS: u32 = 0x0004;
+    pub const ODS_SELECTED: u32 = 0x0001;
+
+    pub const DT_LEFT: u32 = 0x00000000;
+    pub const DT_RIGHT: u32 = 0x00000002;
+    pub const DT_VCENTER: u32 = 0x00000004;
+    pub const DT_SINGLELINE: u32 = 0x00000020;
+    pub const DT_END_ELLIPSIS: u32 = 0x00008000;
+    pub const DT_NOPREFIX: u32 = 0x00000800;
+
+    pub const PS_SOLID: i32 = 0;
+    pub const NULL_PEN: i32 = 8;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct DRAWITEMSTRUCT {
+        pub ctl_type: u32,
+        pub ctl_id: u32,
+        pub item_id: u32,
+        pub item_action: u32,
+        pub item_state: u32,
+        pub hwnd_item: HWND,
+        pub hdc: HDC,
+        pub rc_item: RECT,
+        pub item_data: usize,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct MEASUREITEMSTRUCT {
+        pub ctl_type: u32,
+        pub ctl_id: u32,
+        pub item_id: u32,
+        pub item_width: u32,
+        pub item_height: u32,
+        pub item_data: usize,
+    }
 
     pub const NIM_ADD: u32 = 0;
     pub const NIM_DELETE: u32 = 2;
@@ -238,6 +289,7 @@ mod windows {
         pub fn PostQuitMessage(nExitCode: i32);
         pub fn GetModuleHandleW(lpModuleName: *const u16) -> HINSTANCE;
         pub fn LoadCursorW(hInstance: HINSTANCE, lpCursorName: *const u16) -> HCURSOR;
+        pub fn LoadIconW(hInstance: HINSTANCE, lpIconName: *const u16) -> *mut c_void;
         pub fn GetKeyState(nVirtKey: i32) -> i16;
         pub fn IsDialogMessageW(hDlg: HWND, lpMsg: *const MSG) -> BOOL;
         pub fn SetWindowPos(hWnd: HWND, hWndInsertAfter: HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: u32) -> BOOL;
@@ -246,6 +298,14 @@ mod windows {
         pub fn GetGUIThreadInfo(idThread: u32, pgui: *mut GUITHREADINFO) -> BOOL;
         pub fn GetWindowThreadProcessId(hWnd: HWND, lpdwProcessId: *mut u32) -> u32;
         pub fn ClientToScreen(hWnd: HWND, lpPoint: *mut POINT) -> BOOL;
+        pub fn DrawTextW(hdc: HDC, lpchText: *const u16, cchText: i32, lprc: *mut RECT, format: u32) -> i32;
+        pub fn FillRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH) -> i32;
+        pub fn FrameRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH) -> i32;
+        pub fn InvalidateRect(hWnd: HWND, lpRect: *const RECT, bErase: BOOL) -> BOOL;
+        pub fn GetDC(hWnd: HWND) -> HDC;
+        pub fn ReleaseDC(hWnd: HWND, hDC: HDC) -> i32;
+        pub fn GetDpiForWindow(hwnd: HWND) -> u32;
+        pub fn MonitorFromWindow(hwnd: HWND, dwFlags: u32) -> *mut c_void;
     }
 
     #[link(name = "gdi32")]
@@ -253,7 +313,15 @@ mod windows {
         pub fn CreateSolidBrush(color: u32) -> HBRUSH;
         pub fn SetTextColor(hdc: HDC, color: u32) -> u32;
         pub fn SetBkColor(hdc: HDC, color: u32) -> u32;
+        pub fn SetBkMode(hdc: HDC, mode: i32) -> i32;
         pub fn DeleteObject(ho: HGDIOBJ) -> BOOL;
+        pub fn SelectObject(hdc: HDC, h: HGDIOBJ) -> HGDIOBJ;
+        pub fn CreatePen(iStyle: i32, cWidth: i32, color: u32) -> HGDIOBJ;
+        pub fn GetStockObject(i: i32) -> HGDIOBJ;
+        pub fn Rectangle(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
+        pub fn RoundRect(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) -> BOOL;
+        pub fn MoveToEx(hdc: HDC, x: i32, y: i32, lppt: *mut POINT) -> BOOL;
+        pub fn LineTo(hdc: HDC, x: i32, y: i32) -> BOOL;
     }
 
     #[link(name = "shell32")]
@@ -288,6 +356,13 @@ mod windows {
     #[link(name = "uxtheme")]
     unsafe extern "system" {
         pub fn SetWindowTheme(hwnd: HWND, pszSubAppName: *const u16, pszSubIdList: *const u16) -> i32;
+    }
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        pub fn RegOpenKeyExW(hKey: HKEY, lpSubKey: *const u16, ulOptions: u32, samDesired: u32, phkResult: *mut HKEY) -> i32;
+        pub fn RegQueryValueExW(hKey: HKEY, lpValueName: *const u16, lpReserved: *mut u32, lpType: *mut u32, lpData: *mut u8, lpcbData: *mut u32) -> i32;
+        pub fn RegCloseKey(hKey: HKEY) -> i32;
     }
 
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
@@ -331,6 +406,13 @@ mod windows {
     pub const COLOR_3DFACE: u32 = 15;
     pub const COLOR_WINDOW: u32 = 5;
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
+
+    pub type HKEY = usize;
+    pub const HKEY_CURRENT_USER: HKEY = 0;
+    pub const KEY_READ: u32 = 0;
+    pub const LB_GETTOPINDEX: u32 = 0;
+    pub const WM_PAINT: u32 = 0;
+    pub const WM_ERASEBKGND: u32 = 0;
 
     pub unsafe fn GetForegroundWindow() -> HWND { 0 }
     pub unsafe fn SetForegroundWindow(_hwnd: HWND) -> i32 { 0 }
