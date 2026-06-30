@@ -98,6 +98,30 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
             *FONT_EDIT.lock().unwrap() = Some(SafeHFONT(font_edit));
             *FONT_LISTBOX.lock().unwrap() = Some(SafeHFONT(font_listbox));
             *FONT_LISTBOX_BOLD.lock().unwrap() = Some(SafeHFONT(font_listbox_bold));
+
+            let font_name = util::to_wstring("Segoe MDL2 Assets");
+            let font_icons_16 = win32::CreateFontW(
+                -16, 0, 0, 0,
+                400,
+                0, 0, 0,
+                1, // DEFAULT_CHARSET (Required for Segoe MDL2 Assets)
+                0, 0,
+                5, // CLEARTYPE_QUALITY
+                0,
+                font_name.as_ptr(),
+            );
+            let font_icons_18 = win32::CreateFontW(
+                -18, 0, 0, 0,
+                400,
+                0, 0, 0,
+                1, // DEFAULT_CHARSET (Required for Segoe MDL2 Assets)
+                0, 0,
+                5, // CLEARTYPE_QUALITY
+                0,
+                font_name.as_ptr(),
+            );
+            let _ = state::FONT_ICONS_16.set(SafeHFONT(font_icons_16));
+            let _ = state::FONT_ICONS_18.set(SafeHFONT(font_icons_18));
         }
 
 
@@ -197,6 +221,41 @@ pub unsafe extern "system" fn edit_subclass_proc(hwnd: win32::HWND, msg: u32, wp
 }
 
 #[cfg(target_os = "windows")]
+pub unsafe extern "system" fn listbox_subclass_proc(
+    hwnd: win32::HWND,
+    msg: u32,
+    wparam: win32::WPARAM,
+    lparam: win32::LPARAM,
+) -> win32::LRESULT {
+    if msg == win32::WM_LBUTTONUP {
+        let old_proc_opt = state::OLD_LISTBOX_PROC.get();
+        let res = unsafe {
+            if let Some(SafeWndProc(old_proc)) = old_proc_opt {
+                old_proc(hwnd, msg, wparam, lparam)
+            } else {
+                win32::DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+        };
+
+        // Trigger selection immediately on single mouse click (WM_LBUTTONUP)
+        let cur = unsafe { win32::SendMessageW(hwnd, win32::LB_GETCURSEL, 0, 0) } as isize;
+        if cur != win32::LB_ERR {
+            ui::on_select();
+        }
+        return res;
+    }
+
+    let old_proc_opt = state::OLD_LISTBOX_PROC.get();
+    unsafe {
+        if let Some(SafeWndProc(old_proc)) = old_proc_opt {
+            old_proc(hwnd, msg, wparam, lparam)
+        } else {
+            win32::DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: win32::WPARAM, lparam: win32::LPARAM) -> win32::LRESULT {
     match msg {
         win32::WM_CREATE => {
@@ -260,6 +319,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             };
             let _ = OLD_EDIT_PROC.set(SafeWndProc(unsafe { std::mem::transmute(old_proc) }));
             state::log_debug(&format!("Edit subclass applied. Old proc: {:?}", old_proc));
+
+            let old_listbox_proc = unsafe {
+                win32::SetWindowLongPtrW(hwnd_listbox, win32::GWLP_WNDPROC, listbox_subclass_proc as *const () as win32::LONG_PTR)
+            };
+            let _ = state::OLD_LISTBOX_PROC.set(SafeWndProc(unsafe { std::mem::transmute(old_listbox_proc) }));
+            state::log_debug(&format!("ListBox subclass applied. Old proc: {:?}", old_listbox_proc));
 
             // Apply theme resources right after controls are initialized
             let is_dark = {
@@ -755,6 +820,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             if let Some(SafeHFONT(font)) = FONT_LISTBOX.lock().unwrap().take() {
                 unsafe { win32::DeleteObject(font) };
             }
+            if let Some(SafeHFONT(font)) = state::FONT_ICONS_16.get() {
+                unsafe { win32::DeleteObject(*font) };
+            }
+            if let Some(SafeHFONT(font)) = state::FONT_ICONS_18.get() {
+                unsafe { win32::DeleteObject(*font) };
+            }
 
             // Clean up brush objects
             if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap().take() {
@@ -793,113 +864,125 @@ pub enum IconType {
 }
 
 pub fn draw_vector_icon(hdc: win32::HDC, icon_type: IconType, x: i32, y: i32, size: i32, color: u32) {
-    let s = |v: f32| (v * size as f32 / 24.0).round() as i32;
+    let mut drawn_with_font = false;
 
     unsafe {
-        let pen = win32::CreatePen(win32::PS_SOLID, 2, color);
-        let old_pen = win32::SelectObject(hdc, pen);
-        let null_brush = win32::GetStockObject(5 /* NULL_BRUSH */);
-        let old_brush = win32::SelectObject(hdc, null_brush);
+        let font_icons = if size == 18 {
+            state::FONT_ICONS_18.get()
+        } else {
+            state::FONT_ICONS_16.get()
+        };
 
-        match icon_type {
-            IconType::Search => {
-                // Octagon circle: points (9, 4), (13, 4), (16, 7), (16, 11), (13, 14), (9, 14), (6, 11), (6, 7) -> close
-                win32::MoveToEx(hdc, x + s(9.0), y + s(4.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(13.0), y + s(4.0));
-                win32::LineTo(hdc, x + s(16.0), y + s(7.0));
-                win32::LineTo(hdc, x + s(16.0), y + s(11.0));
-                win32::LineTo(hdc, x + s(13.0), y + s(14.0));
-                win32::LineTo(hdc, x + s(9.0), y + s(14.0));
-                win32::LineTo(hdc, x + s(6.0), y + s(11.0));
-                win32::LineTo(hdc, x + s(6.0), y + s(7.0));
-                win32::LineTo(hdc, x + s(9.0), y + s(4.0));
+        if let Some(SafeHFONT(font)) = font_icons {
+            if !font.is_null() {
+                let old_font = win32::SelectObject(hdc, *font as win32::HGDIOBJ);
+                if !old_font.is_null() {
+                    let old_color = win32::SetTextColor(hdc, color);
+                    let old_mode = win32::SetBkMode(hdc, 1 /* TRANSPARENT */);
 
-                // Handle: from (13.5, 13.5) to (20, 20)
-                win32::MoveToEx(hdc, x + s(13.5), y + s(13.5), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(20.0), y + s(20.0));
-            }
-            IconType::Folder => {
-                // Folder outline: (4, 6) -> (9, 6) -> (11, 8) -> (20, 8) -> (20, 18) -> (4, 18) -> close
-                win32::MoveToEx(hdc, x + s(4.0), y + s(6.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(9.0), y + s(6.0));
-                win32::LineTo(hdc, x + s(11.0), y + s(8.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(18.0));
-                win32::LineTo(hdc, x + s(4.0), y + s(18.0));
-                win32::LineTo(hdc, x + s(4.0), y + s(6.0));
-            }
-            IconType::ParentFolder => {
-                // Folder outline
-                win32::MoveToEx(hdc, x + s(4.0), y + s(6.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(9.0), y + s(6.0));
-                win32::LineTo(hdc, x + s(11.0), y + s(8.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(18.0));
-                win32::LineTo(hdc, x + s(4.0), y + s(18.0));
-                win32::LineTo(hdc, x + s(4.0), y + s(6.0));
+                    let glyph_char = match icon_type {
+                        IconType::Search => 0xE721u16,         // Search (🔍)
+                        IconType::Folder => 0xE8B7u16,         // Folder (📁)
+                        IconType::ParentFolder => 0xE10Eu16,   // FolderParent / Up (↩/⬆)
+                        IconType::Snippet => 0xE70Au16,        // Document (📄)
+                        IconType::History => 0xE12Fu16,        // Clipboard (📋)
+                        IconType::ChevronRight => 0xE974u16,   // ChevronRight (＞)
+                    };
 
-                // Up arrow shaft inside: (12, 10) to (12, 16)
-                win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(12.0), y + s(16.0));
-                // Up arrow head: (12, 10) to (9, 13), and (12, 10) to (15, 13)
-                win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(9.0), y + s(13.0));
-                win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(15.0), y + s(13.0));
-            }
-            IconType::Snippet => {
-                // Outlined sheet: (6, 2) to (14, 2) to (20, 8) to (20, 22) to (6, 22) to close.
-                win32::MoveToEx(hdc, x + s(6.0), y + s(2.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(14.0), y + s(2.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(22.0));
-                win32::LineTo(hdc, x + s(6.0), y + s(22.0));
-                win32::LineTo(hdc, x + s(6.0), y + s(2.0));
+                    let glyph_w = [glyph_char, 0];
+                    let mut rc = win32::RECT {
+                        left: x,
+                        top: y + 1,
+                        right: x + size,
+                        bottom: y + size + 1,
+                    };
 
-                // Folded corner: (14, 2) to (14, 8) to (20, 8)
-                win32::MoveToEx(hdc, x + s(14.0), y + s(2.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(14.0), y + s(8.0));
-                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+                    win32::DrawTextW(
+                        hdc,
+                        glyph_w.as_ptr(),
+                        1,
+                        &mut rc,
+                        win32::DT_SINGLELINE | win32::DT_CENTER | win32::DT_VCENTER | win32::DT_NOPREFIX,
+                    );
 
-                // Lines inside: (9, 12) to (17, 12), and (9, 16) to (17, 16)
-                win32::MoveToEx(hdc, x + s(9.0), y + s(12.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(17.0), y + s(12.0));
-                win32::MoveToEx(hdc, x + s(9.0), y + s(16.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(17.0), y + s(16.0));
-            }
-            IconType::History => {
-                // Clipboard: (7, 4) to (5, 4) to (5, 22) to (19, 22) to (19, 4) to (17, 4)
-                win32::MoveToEx(hdc, x + s(7.0), y + s(4.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(5.0), y + s(4.0));
-                win32::LineTo(hdc, x + s(5.0), y + s(22.0));
-                win32::LineTo(hdc, x + s(19.0), y + s(22.0));
-                win32::LineTo(hdc, x + s(19.0), y + s(4.0));
-                win32::LineTo(hdc, x + s(17.0), y + s(4.0));
-
-                // Clipboard clip: (8, 4) to (8, 2) to (16, 2) to (16, 4) to close.
-                win32::MoveToEx(hdc, x + s(8.0), y + s(4.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(8.0), y + s(2.0));
-                win32::LineTo(hdc, x + s(16.0), y + s(2.0));
-                win32::LineTo(hdc, x + s(16.0), y + s(4.0));
-                win32::LineTo(hdc, x + s(8.0), y + s(4.0));
-
-                // Horizontal clipboard lines
-                win32::MoveToEx(hdc, x + s(8.0), y + s(10.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(16.0), y + s(10.0));
-                win32::MoveToEx(hdc, x + s(8.0), y + s(14.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(16.0), y + s(14.0));
-            }
-            IconType::ChevronRight => {
-                // ChevronRight: (9, 6) to (15, 12) to (9, 18)
-                win32::MoveToEx(hdc, x + s(9.0), y + s(6.0), std::ptr::null_mut());
-                win32::LineTo(hdc, x + s(15.0), y + s(12.0));
-                win32::LineTo(hdc, x + s(9.0), y + s(18.0));
+                    win32::SelectObject(hdc, old_font);
+                    win32::SetTextColor(hdc, old_color);
+                    win32::SetBkMode(hdc, old_mode);
+                    drawn_with_font = true;
+                }
             }
         }
+    }
 
-        win32::SelectObject(hdc, old_pen);
-        win32::SelectObject(hdc, old_brush);
-        win32::DeleteObject(pen);
+    if !drawn_with_font {
+        let s = |v: f32| (v * size as f32 / 24.0).round() as i32;
+
+        unsafe {
+            let pen = win32::CreatePen(win32::PS_SOLID, 2, color);
+            let old_pen = win32::SelectObject(hdc, pen);
+            let null_brush = win32::GetStockObject(5 /* NULL_BRUSH */);
+            let old_brush = win32::SelectObject(hdc, null_brush);
+
+            match icon_type {
+                IconType::Search => {
+                    win32::Ellipse(hdc, x + s(6.0), y + s(4.0), x + s(16.0), y + s(14.0));
+                    win32::MoveToEx(hdc, x + s(13.0), y + s(11.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(19.0), y + s(17.0));
+                }
+                IconType::Folder => {
+                    win32::MoveToEx(hdc, x + s(4.0), y + s(9.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(4.0), y + s(6.0));
+                    win32::LineTo(hdc, x + s(9.0), y + s(6.0));
+                    win32::LineTo(hdc, x + s(11.0), y + s(9.0));
+                    win32::RoundRect(hdc, x + s(4.0), y + s(9.0), x + s(20.0), y + s(19.0), s(2.0), s(2.0));
+                }
+                IconType::ParentFolder => {
+                    win32::MoveToEx(hdc, x + s(4.0), y + s(9.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(4.0), y + s(6.0));
+                    win32::LineTo(hdc, x + s(9.0), y + s(6.0));
+                    win32::LineTo(hdc, x + s(11.0), y + s(9.0));
+                    win32::RoundRect(hdc, x + s(4.0), y + s(9.0), x + s(20.0), y + s(19.0), s(2.0), s(2.0));
+                    win32::MoveToEx(hdc, x + s(12.0), y + s(11.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(12.0), y + s(17.0));
+                    win32::MoveToEx(hdc, x + s(12.0), y + s(11.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(9.0), y + s(14.0));
+                    win32::MoveToEx(hdc, x + s(12.0), y + s(11.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(15.0), y + s(14.0));
+                }
+                IconType::Snippet => {
+                    win32::MoveToEx(hdc, x + s(6.0), y + s(2.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(14.0), y + s(2.0));
+                    win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+                    win32::LineTo(hdc, x + s(20.0), y + s(22.0));
+                    win32::LineTo(hdc, x + s(6.0), y + s(22.0));
+                    win32::LineTo(hdc, x + s(6.0), y + s(2.0));
+                    win32::MoveToEx(hdc, x + s(14.0), y + s(2.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(14.0), y + s(8.0));
+                    win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+                    win32::MoveToEx(hdc, x + s(9.0), y + s(12.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(17.0), y + s(12.0));
+                    win32::MoveToEx(hdc, x + s(9.0), y + s(16.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(17.0), y + s(16.0));
+                }
+                IconType::History => {
+                    win32::RoundRect(hdc, x + s(5.0), y + s(5.0), x + s(19.0), y + s(22.0), s(3.0), s(3.0));
+                    win32::RoundRect(hdc, x + s(8.0), y + s(2.0), x + s(16.0), y + s(6.0), s(2.0), s(2.0));
+                    win32::MoveToEx(hdc, x + s(8.0), y + s(10.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(16.0), y + s(10.0));
+                    win32::MoveToEx(hdc, x + s(8.0), y + s(14.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(16.0), y + s(14.0));
+                }
+                IconType::ChevronRight => {
+                    win32::MoveToEx(hdc, x + s(9.0), y + s(6.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(15.0), y + s(12.0));
+                    win32::LineTo(hdc, x + s(9.0), y + s(18.0));
+                }
+            }
+
+            win32::SelectObject(hdc, old_pen);
+            win32::SelectObject(hdc, old_brush);
+            win32::DeleteObject(pen);
+        }
     }
 }
 

@@ -168,7 +168,6 @@ pub fn on_select() {
             state::log_debug(&format!("on_select selected text: {}", selected_text));
 
             let mut final_text = selected_text.clone();
-            let mut last_active = None;
             {
                 let mut state_guard = APP_STATE.lock().unwrap();
                 if let Some(state) = &mut *state_guard {
@@ -179,7 +178,6 @@ pub fn on_select() {
                     } else {
                         final_text = target_path.clone();
                     }
-                    last_active = state.last_active_window;
                 }
             }
 
@@ -195,7 +193,6 @@ pub fn on_select() {
             }
             state::log_debug(&format!("Clipboard write success: {}", success));
 
-            restore_focus(last_active);
             hide_window();
             simulate_paste();
         }
@@ -306,29 +303,87 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         if y < 0 { y = 0; }
 
         unsafe {
+            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
+
+            let mut state_guard = APP_STATE.lock().unwrap();
+            if let Some(state) = &mut *state_guard {
+                let generation = FILTER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+                state.filter_generation = generation;
+
+                let dict = state::get_migemo_dict();
+                let (display_items, full_paths) = filter::filter_items("", state, dict.as_deref());
+                state.current_results = display_items;
+                state.current_full_paths = full_paths;
+
+                if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                    win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
+                    for item in &state.current_results {
+                        let item_w = util::to_wstring(item);
+                        win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
+                    }
+                    if !state.current_results.is_empty() {
+                        win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
+                    }
+                }
+            }
+            std::mem::drop(state_guard);
+
             win32::SetWindowPos(*hwnd_main, std::ptr::null_mut(), x, y, w, h, 0x0040 /* SWP_SHOWWINDOW */);
 
             let foreground = win32::GetForegroundWindow();
             if !foreground.is_null() && foreground != *hwnd_main {
                 let cur_thread = win32::GetCurrentThreadId();
                 let fg_thread = win32::GetWindowThreadProcessId(foreground, std::ptr::null_mut());
+                
                 win32::AttachThreadInput(cur_thread, fg_thread, 1);
                 win32::SetForegroundWindow(*hwnd_main);
                 win32::AttachThreadInput(cur_thread, fg_thread, 0);
+
+                let foreground_now = win32::GetForegroundWindow();
+                if foreground_now != *hwnd_main {
+                    // Alt key down & up trick to bypass SetForegroundWindow restrictions
+                    let inputs = [
+                        win32::INPUT {
+                            r#type: win32::INPUT_KEYBOARD,
+                            u: win32::INPUT_union {
+                                ki: win32::KEYBDINPUT {
+                                    w_vk: 18, // VK_MENU (ALT)
+                                    w_scan: 0,
+                                    dw_flags: 0,
+                                    time: 0,
+                                    dw_extra_info: 0,
+                                }
+                            }
+                        },
+                        win32::INPUT {
+                            r#type: win32::INPUT_KEYBOARD,
+                            u: win32::INPUT_union {
+                                ki: win32::KEYBDINPUT {
+                                    w_vk: 18, // VK_MENU (ALT)
+                                    w_scan: 0,
+                                    dw_flags: win32::KEYEVENTF_KEYUP,
+                                    time: 0,
+                                    dw_extra_info: 0,
+                                }
+                            }
+                        }
+                    ];
+                    win32::SendInput(2, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32);
+                    win32::SetForegroundWindow(*hwnd_main);
+                }
             } else {
                 win32::SetForegroundWindow(*hwnd_main);
             }
 
-            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
             win32::SetFocus(*hwnd_edit);
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
-        update_listbox_items();
         update_search_cue_banner();
     }
 }
 
 pub fn hide_window() {
+    let mut last_active = None;
     {
         let mut state_guard = APP_STATE.lock().unwrap();
         if let Some(state) = &mut *state_guard {
@@ -337,11 +392,17 @@ pub fn hide_window() {
             state.current_results.clear();
             state.current_full_paths.clear();
             state.snippets = std::sync::Arc::new(Vec::new());
+            
+            // Capture and clear the last active window
+            last_active = state.last_active_window.take();
         }
     }
     
     // Clear Migemo dictionary from memory
     state::clear_migemo_dict();
+
+    // Restore focus to the last active window
+    restore_focus(last_active);
 
     if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };

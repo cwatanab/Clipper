@@ -64,6 +64,7 @@ pub static MAIN_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static EDIT_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static LISTBOX_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static OLD_EDIT_PROC: OnceLock<SafeWndProc> = OnceLock::new();
+pub static OLD_LISTBOX_PROC: OnceLock<SafeWndProc> = OnceLock::new();
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
 pub static MIGEMO_DICT: Mutex<Option<Arc<CompactDictionary>>> = Mutex::new(None);
 
@@ -91,6 +92,8 @@ pub static BRUSH_SEL_BG: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
 pub static FONT_EDIT: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_LISTBOX: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_LISTBOX_BOLD: Mutex<Option<SafeHFONT>> = Mutex::new(None);
+pub static FONT_ICONS_16: OnceLock<SafeHFONT> = OnceLock::new();
+pub static FONT_ICONS_18: OnceLock<SafeHFONT> = OnceLock::new();
 
 pub fn log_debug(_msg: &str) {}
 

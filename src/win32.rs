@@ -213,7 +213,11 @@ mod windows {
     pub const LB_GETTEXT: u32 = 0x0189;
     pub const LB_GETTEXTLEN: u32 = 0x018A;
     pub const LB_GETTOPINDEX: u32 = 0x018E;
+    pub const LB_ITEMFROMPOINT: u32 = 0x01A9;
     pub const LB_ERR: isize = -1;
+
+    pub const WM_LBUTTONDOWN: u32 = 0x0201;
+    pub const WM_LBUTTONUP: u32 = 0x0202;
 
     pub type HKEY = *mut c_void;
     pub const HKEY_CURRENT_USER: HKEY = 0x80000001 as HKEY;
@@ -484,6 +488,9 @@ mod windows {
     pub const HKEY_CURRENT_USER: HKEY = 0;
     pub const KEY_READ: u32 = 0;
     pub const LB_GETTOPINDEX: u32 = 0;
+    pub const LB_ITEMFROMPOINT: u32 = 0;
+    pub const WM_LBUTTONDOWN: u32 = 0;
+    pub const WM_LBUTTONUP: u32 = 0;
     pub const WM_PAINT: u32 = 0;
     pub const WM_ERASEBKGND: u32 = 0;
 
