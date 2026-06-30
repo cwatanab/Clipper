@@ -81,13 +81,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             }
             Mode::History => {
                 let display: Vec<String> = state.history.iter()
-                    .map(|s| {
-                        let clean = s.replace("\r\n", " ")
-                                     .replace('\n', " ")
-                                     .replace('\r', " ")
-                                     .replace('\t', " ");
-                        format!("[HIST] {}", clean)
-                    })
+                    .map(|s| clean_history_item(s))
                     .collect();
                 let full: Vec<String> = state.history.iter().cloned().collect();
                 (display, full)
@@ -121,22 +115,11 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
         }
     }).collect();
 
-    // Pre-compile case-insensitive regex for the raw query to avoid per-item to_lowercase allocations
-    let query_re = RegexBuilder::new(&regex::escape(query_text))
-        .case_insensitive(true)
-        .build()
-        .ok();
-
-    // Pre-compile case-insensitive regex for hiragana/katakana search
-    let hiragana_re = if !hiragana.is_empty() && hiragana != query_text {
-        let pattern = format!("{}|{}", regex::escape(&hiragana), regex::escape(&katakana));
-        RegexBuilder::new(&pattern)
-            .case_insensitive(true)
-            .build()
-            .ok()
-    } else {
-        None
-    };
+    // Pre-lowercase search terms once to perform fast case-insensitive literal containment checks
+    let query_lower = query_text.to_lowercase();
+    let hiragana_lower = hiragana.to_lowercase();
+    let katakana_lower = katakana.to_lowercase();
+    let check_hira_kata = !hiragana.is_empty() && hiragana != query_text;
 
     let matches_text = |text: &str| -> bool {
         if let Some(ref re) = re_opt {
@@ -144,15 +127,12 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                 return true;
             }
         }
-        if let Some(ref re) = query_re {
-            if re.is_match(text) {
-                return true;
-            }
+        let text_lower = text.to_lowercase();
+        if text_lower.contains(&query_lower) {
+            return true;
         }
-        if let Some(ref re) = hiragana_re {
-            if re.is_match(text) {
-                return true;
-            }
+        if check_hira_kata && (text_lower.contains(&hiragana_lower) || text_lower.contains(&katakana_lower)) {
+            return true;
         }
         false
     };
@@ -236,11 +216,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             let mut matches_full = Vec::new();
             for text in state.history.iter() {
                 if matches_text(text) {
-                    let clean = text.replace("\r\n", " ")
-                                    .replace('\n', " ")
-                                    .replace('\r', " ")
-                                    .replace('\t', " ");
-                    matches_display.push(format!("[HIST] {}", clean));
+                    matches_display.push(clean_history_item(text));
                     matches_full.push(text.clone());
                 }
             }
@@ -250,4 +226,21 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
     }
 
     (display_items, full_paths)
+}
+
+fn clean_history_item(s: &str) -> String {
+    let mut clean = String::with_capacity("[HIST] ".len() + s.len());
+    clean.push_str("[HIST] ");
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' && chars.peek() == Some(&'\n') {
+            chars.next(); // consume \n
+            clean.push(' ');
+        } else if c == '\r' || c == '\n' || c == '\t' {
+            clean.push(' ');
+        } else {
+            clean.push(c);
+        }
+    }
+    clean
 }

@@ -373,30 +373,22 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         }
         state::WM_FILTER_COMPLETE => {
             let generation = wparam as u32;
-            let mut display_items = Vec::new();
-            
-            {
+            if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
                 let state_guard = APP_STATE.lock().unwrap();
                 if let Some(state) = &*state_guard {
                     if state.filter_generation == generation {
-                        display_items = state.current_results.clone();
-                    }
-                }
-            }
-
-            if !display_items.is_empty() || generation != 0 {
-                if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                    unsafe {
-                        win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
-                        for item in &display_items {
-                            let item_w = util::to_wstring(item);
-                            win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
+                        unsafe {
+                            win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
+                            for item in &state.current_results {
+                                let item_w = util::to_wstring(item);
+                                win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
+                            }
+                            if !state.current_results.is_empty() {
+                                win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
+                            }
                         }
-                        if !display_items.is_empty() {
-                            win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
-                        }
+                        update_top_index();
                     }
-                    update_top_index();
                 }
             }
         }
@@ -738,7 +730,10 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                             if history.len() > 1000 {
                                 history.pop_back();
                             }
-                            util::save_history(history);
+                            let history_arc = std::sync::Arc::clone(&state.history);
+                            std::thread::spawn(move || {
+                                util::save_history(&history_arc);
+                            });
                         }
                     }
                 }

@@ -131,7 +131,7 @@ pub fn on_select() {
                     
                     if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
                         unsafe {
-                            win32::SetWindowTextW(*hwnd_edit, util::to_wstring("").as_ptr());
+                            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
                             win32::SetFocus(*hwnd_edit);
                         }
                     }
@@ -149,7 +149,7 @@ pub fn on_select() {
                     
                     if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
                         unsafe {
-                            win32::SetWindowTextW(*hwnd_edit, util::to_wstring("").as_ptr());
+                            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
                             win32::SetFocus(*hwnd_edit);
                         }
                     }
@@ -318,7 +318,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 win32::SetForegroundWindow(*hwnd_main);
             }
 
-            win32::SetWindowTextW(*hwnd_edit, util::to_wstring("").as_ptr());
+            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
             win32::SetFocus(*hwnd_edit);
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
@@ -452,17 +452,19 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
 
 pub fn update_search_cue_banner() {
     if let (Some(SafeHWND(hwnd_edit)), Some(state_guard)) = (EDIT_HWND.get(), APP_STATE.lock().unwrap().as_ref()) {
+        let cue_holder;
         let cue_text = match state_guard.mode {
             Mode::Snippet => {
                 if state_guard.current_folder.is_empty() {
-                    "スニペット (Root) - 検索 (Migemo)...".to_string()
+                    "スニペット (Root) - 検索 (Migemo)..."
                 } else {
-                    format!("スニペット [{}] - 検索 (Migemo)...", state_guard.current_folder)
+                    cue_holder = format!("スニペット [{}] - 検索 (Migemo)...", state_guard.current_folder);
+                    &cue_holder
                 }
             }
-            Mode::History => "クリップボード履歴 - 検索 (Migemo)...".to_string(),
+            Mode::History => "クリップボード履歴 - 検索 (Migemo)...",
         };
-        let cue_w = util::to_wstring(&cue_text);
+        let cue_w = util::to_wstring(cue_text);
         unsafe {
             win32::SendMessageW(*hwnd_edit, 0x1501 /* EM_SETCUEBANNER */, 1, cue_w.as_ptr() as win32::LPARAM);
         }
