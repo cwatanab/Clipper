@@ -373,22 +373,30 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         }
         state::WM_FILTER_COMPLETE => {
             let generation = wparam as u32;
-            if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+            let display_items = {
                 let state_guard = APP_STATE.lock().unwrap();
-                if let Some(state) = &*state_guard {
+                state_guard.as_ref().and_then(|state| {
                     if state.filter_generation == generation {
-                        unsafe {
-                            win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
-                            for item in &state.current_results {
-                                let item_w = util::to_wstring(item);
-                                win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
-                            }
-                            if !state.current_results.is_empty() {
-                                win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
-                            }
-                        }
-                        update_top_index();
+                        Some(state.current_results.clone())
+                    } else {
+                        None
                     }
+                })
+            };
+
+            if let Some(items) = display_items {
+                if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                    unsafe {
+                        win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
+                        for item in &items {
+                            let item_w = util::to_wstring(item);
+                            win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
+                        }
+                        if !items.is_empty() {
+                            win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
+                        }
+                    }
+                    update_top_index();
                 }
             }
         }
