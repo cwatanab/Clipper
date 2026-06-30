@@ -96,6 +96,17 @@ mod windows {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct PAINTSTRUCT {
+        pub hdc: HDC,
+        pub fErase: BOOL,
+        pub rcPaint: RECT,
+        pub fRestore: BOOL,
+        pub fIncUpdate: BOOL,
+        pub rgbReserved: [u8; 32],
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct DATA_BLOB {
         pub cbData: u32,
         pub pbData: *mut u8,
@@ -326,6 +337,8 @@ mod windows {
         pub fn GetClipboardData(uFormat: u32) -> *mut c_void;
         pub fn SetClipboardData(uFormat: u32, hMem: *mut c_void) -> *mut c_void;
         pub fn EmptyClipboard() -> BOOL;
+        pub fn BeginPaint(hWnd: HWND, lpPaint: *mut PAINTSTRUCT) -> HDC;
+        pub fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) -> BOOL;
     }
 
     #[link(name = "gdi32")]
@@ -495,6 +508,16 @@ mod windows {
     pub const WM_CLIPBOARDUPDATE: u32 = 0x031D;
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct PAINTSTRUCT {
+        pub hdc: usize,
+        pub fErase: i32,
+        pub rcPaint: RECT,
+        pub fRestore: i32,
+        pub fIncUpdate: i32,
+        pub rgbReserved: [u8; 32],
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct DATA_BLOB {
         pub cbData: u32,
         pub pbData: *mut std::ffi::c_void,
@@ -520,6 +543,8 @@ mod windows {
     pub unsafe fn GlobalLock(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
     pub unsafe fn GlobalUnlock(_h: *mut std::ffi::c_void) -> i32 { 0 }
     pub unsafe fn GlobalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn BeginPaint(_hwnd: HWND, _lpPaint: *mut PAINTSTRUCT) -> usize { 0 }
+    pub unsafe fn EndPaint(_hwnd: HWND, _lpPaint: *const PAINTSTRUCT) -> i32 { 0 }
 }
 
 pub use windows::*;

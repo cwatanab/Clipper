@@ -515,20 +515,18 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             unsafe { win32::SetBkMode(hdc, 1 /* TRANSPARENT */) };
 
-            // Parse text and tags: "[DIR] ", "[SNIP] ", "[HIST] "
-            let display_text = String::from_utf16_lossy(&buf[..len]);
-            let (icon_type_opt, clean_text) = if display_text.starts_with("[DIR] ") {
-                if display_text.contains("..") {
-                    (Some(IconType::ParentFolder), &display_text["[DIR] ".len()..])
-                } else {
-                    (Some(IconType::Folder), &display_text["[DIR] ".len()..])
-                }
-            } else if display_text.starts_with("[SNIP] ") {
-                (Some(IconType::Snippet), &display_text["[SNIP] ".len()..])
-            } else if display_text.starts_with("[HIST] ") {
-                (Some(IconType::History), &display_text["[HIST] ".len()..])
+            // Parse text and tags directly on UTF-16 slice to prevent heap allocations
+            let wide_text = &buf[..len];
+            let (icon_type_opt, clean_text_w) = if wide_text.starts_with(&[91, 68, 73, 82, 93, 32]) { // "[DIR] "
+                let contains_dots = wide_text.windows(2).any(|w| w == [46, 46]);
+                let icon = if contains_dots { IconType::ParentFolder } else { IconType::Folder };
+                (Some(icon), &wide_text[6..])
+            } else if wide_text.starts_with(&[91, 83, 78, 73, 80, 93, 32]) { // "[SNIP] "
+                (Some(IconType::Snippet), &wide_text[7..])
+            } else if wide_text.starts_with(&[91, 72, 73, 83, 84, 93, 32]) { // "[HIST] "
+                (Some(IconType::History), &wide_text[7..])
             } else {
-                (None, display_text.as_str())
+                (None, wide_text)
             };
 
             // Draw icon if present
@@ -559,11 +557,10 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 bottom: rc.bottom,
             };
             
-            let clean_text_w = util::to_wstring(clean_text);
             unsafe {
                 win32::SetTextColor(hdc, text_color);
                 win32::DrawTextW(
-                    hdc, clean_text_w.as_ptr(), -1, &mut text_rc,
+                    hdc, clean_text_w.as_ptr(), clean_text_w.len() as i32, &mut text_rc,
                     win32::DT_SINGLELINE | win32::DT_VCENTER | win32::DT_LEFT | win32::DT_END_ELLIPSIS | win32::DT_NOPREFIX,
                 );
             }
@@ -578,7 +575,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             return 1;
         }
         win32::WM_PAINT => {
-            let res = unsafe { win32::DefWindowProcW(hwnd, msg, wparam, lparam) };
+            let mut ps = unsafe { std::mem::zeroed::<win32::PAINTSTRUCT>() };
+            let hdc = unsafe { win32::BeginPaint(hwnd, &mut ps) };
 
             let is_dark = {
                 let state_guard = APP_STATE.lock().unwrap();
@@ -586,10 +584,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
 
-            let hdc = unsafe { win32::GetDC(hwnd) };
-            let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
-            unsafe { win32::GetClientRect(hwnd, &mut rc) };
-            let cw = rc.right - rc.left;
+            let mut client_rc: win32::RECT = unsafe { std::mem::zeroed() };
+            unsafe { win32::GetClientRect(hwnd, &mut client_rc) };
+            let cw = client_rc.right - client_rc.left;
 
             // Draw a rounded input container border/background
             let margin = 4;
@@ -646,13 +643,13 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 delete_border = true;
                 unsafe { win32::CreateSolidBrush(colors.border_color) }
             };
-            unsafe { win32::FrameRect(hdc, &rc, border_brush) };
+            unsafe { win32::FrameRect(hdc, &client_rc, border_brush) };
             if delete_border {
                 unsafe { win32::DeleteObject(border_brush) };
             }
 
-            unsafe { win32::ReleaseDC(hwnd, hdc) };
-            return res;
+            unsafe { win32::EndPaint(hwnd, &ps) };
+            return 0;
         }
         win32::WM_ERASEBKGND => {
             // Erase with the correct theme color

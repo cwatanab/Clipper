@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use crate::state::{self, SafeHWND, LAST_KEY_VK, LAST_KEY_TIME, MAIN_HWND, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{SafeHWND, LAST_KEY_VK, LAST_KEY_TIME, MAIN_HWND, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::win32;
 
 #[cfg(target_os = "windows")]
@@ -20,7 +20,6 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: win32::WPARA
                 let now_time = kbd.time;
 
                 if prev_vk == mapped_vk && now_time.wrapping_sub(prev_time) < 500 {
-                    state::log_debug(&format!("Double press detected: vk={}", mapped_vk));
                     let main_hwnd_val = MAIN_HWND.get();
                     if let Some(SafeHWND(main_hwnd)) = main_hwnd_val {
                         if *main_hwnd != std::ptr::null_mut() {
