@@ -452,6 +452,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             if let Some(items) = display_items {
                 if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
                     unsafe {
+                        win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
                         win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
                         for item in &items {
                             let item_w = util::to_wstring(item);
@@ -460,6 +461,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                         if !items.is_empty() {
                             win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
                         }
+                        win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
+                        win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
                     }
                     update_top_index();
                 }
@@ -531,8 +534,17 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Fetch absolute list box item text
             let len = unsafe { win32::SendMessageW(dis.hwnd_item, win32::LB_GETTEXTLEN, dis.item_id as usize, 0) } as usize;
-            let mut buf = vec![0u16; len + 1];
-            unsafe { win32::SendMessageW(dis.hwnd_item, win32::LB_GETTEXT, dis.item_id as usize, buf.as_mut_ptr() as win32::LPARAM) };
+            
+            // Use stack-allocated buffer for typical lengths to avoid heap allocation
+            let mut stack_buf = [0u16; 512];
+            let mut heap_buf = Vec::new();
+            let buf_ptr = if len < 512 {
+                stack_buf.as_mut_ptr()
+            } else {
+                heap_buf = vec![0u16; len + 1];
+                heap_buf.as_mut_ptr()
+            };
+            unsafe { win32::SendMessageW(dis.hwnd_item, win32::LB_GETTEXT, dis.item_id as usize, buf_ptr as win32::LPARAM) };
 
             // Setup colors based on selection status
             let bg_color = if selected { colors.sel_bg } else { colors.window_bg };
@@ -581,7 +593,11 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             unsafe { win32::SetBkMode(hdc, 1 /* TRANSPARENT */) };
 
             // Parse text and tags directly on UTF-16 slice to prevent heap allocations
-            let wide_text = &buf[..len];
+            let wide_text = if len < 512 {
+                &stack_buf[..len]
+            } else {
+                &heap_buf[..len]
+            };
             let (icon_type_opt, clean_text_w) = if wide_text.starts_with(&[91, 68, 73, 82, 93, 32]) { // "[DIR] "
                 let contains_dots = wide_text.windows(2).any(|w| w == [46, 46]);
                 let icon = if contains_dots { IconType::ParentFolder } else { IconType::Folder };

@@ -316,6 +316,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 state.current_full_paths = full_paths;
 
                 if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                    win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
                     win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
                     for item in &state.current_results {
                         let item_w = util::to_wstring(item);
@@ -324,6 +325,8 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                     if !state.current_results.is_empty() {
                         win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
                     }
+                    win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
+                    win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
                 }
             }
             std::mem::drop(state_guard);

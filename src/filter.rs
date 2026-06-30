@@ -35,9 +35,9 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                     if cur_folder.is_empty() {
                         if let Some(pos) = name.find('/') {
                             let folder = &name[..pos];
-                            folder_names.insert(folder.to_string());
+                            folder_names.insert(folder);
                         } else {
-                            local_snippets.push(name.clone());
+                            local_snippets.push(name.as_str());
                         }
                     } else {
                         let prefix = format!("{}/", cur_folder);
@@ -45,16 +45,16 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                             let sub_name = &name[prefix.len()..];
                             if let Some(pos) = sub_name.find('/') {
                                 let folder = &sub_name[..pos];
-                                folder_names.insert(folder.to_string());
+                                folder_names.insert(folder);
                             } else {
-                                local_snippets.push(name.clone());
+                                local_snippets.push(name.as_str());
                             }
                         }
                     }
                 }
 
                 // Add sorted subdirectories
-                let mut folders: Vec<String> = folder_names.into_iter().collect();
+                let mut folders: Vec<&str> = folder_names.into_iter().collect();
                 folders.sort();
                 for f in folders {
                     display_items.push(format!("[DIR] {}", f));
@@ -69,12 +69,12 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                 local_snippets.sort();
                 for s in local_snippets {
                     let display_name = if let Some(pos) = s.rfind('/') {
-                        s[pos + 1..].to_string()
+                        &s[pos + 1..]
                     } else {
-                        s.clone()
+                        s
                     };
                     display_items.push(format!("[SNIP] {}", display_name));
-                    full_paths.push(s);
+                    full_paths.push(s.to_string());
                 }
 
                 (display_items, full_paths)
@@ -89,52 +89,55 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
         };
     }
 
+    let mut regex_parts = Vec::new();
+
+    // 1. Add Migemo query regex if dictionary is available
+    if let Some(dict) = dict_opt {
+        let migemo_re = query(query_text.to_string(), dict, &RegexOperator::Default);
+        if !migemo_re.is_empty() {
+            regex_parts.push(migemo_re);
+        }
+    }
+
+    // 2. Add literal query escaped
+    regex_parts.push(regex::escape(query_text));
+
+    // 3. Add Hiragana/Katakana escaped if applicable
     let romaji_proc = get_romaji_processor();
     let hiragana = romaji_proc.romaji_to_hiragana(query_text);
+    let check_hira = !hiragana.is_empty() && hiragana != query_text;
+    if check_hira {
+        regex_parts.push(regex::escape(&hiragana));
 
-    let regex_str = if let Some(dict) = dict_opt {
-        query(query_text.to_string(), dict, &RegexOperator::Default)
-    } else {
-        String::new()
-    };
-
-    let re_opt = if !regex_str.is_empty() {
-        RegexBuilder::new(&regex_str)
-            .case_insensitive(true)
-            .build()
-            .ok()
-    } else {
-        None
-    };
-
-    let katakana: String = hiragana.chars().map(|c| {
-        if ('ぁ'..='ん').contains(&c) {
-            char::from_u32(c as u32 + 0x60).unwrap_or(c)
-        } else {
-            c
+        let katakana: String = hiragana.chars().map(|c| {
+            if ('ぁ'..='ん').contains(&c) {
+                char::from_u32(c as u32 + 0x60).unwrap_or(c)
+            } else {
+                c
+            }
+        }).collect();
+        if !katakana.is_empty() && katakana != hiragana {
+            regex_parts.push(regex::escape(&katakana));
         }
-    }).collect();
+    }
 
-    // Pre-lowercase search terms once to perform fast case-insensitive literal containment checks
+    // Combine them with OR operator
+    let combined_pattern = regex_parts.join("|");
+
+    let re_opt = RegexBuilder::new(&combined_pattern)
+        .case_insensitive(true)
+        .build()
+        .ok();
+
     let query_lower = query_text.to_lowercase();
-    let hiragana_lower = hiragana.to_lowercase();
-    let katakana_lower = katakana.to_lowercase();
-    let check_hira_kata = !hiragana.is_empty() && hiragana != query_text;
 
     let matches_text = |text: &str| -> bool {
         if let Some(ref re) = re_opt {
-            if re.is_match(text) {
-                return true;
-            }
+            re.is_match(text)
+        } else {
+            // Fallback case-insensitive literal check if regex fails
+            text.to_lowercase().contains(&query_lower)
         }
-        let text_lower = text.to_lowercase();
-        if text_lower.contains(&query_lower) {
-            return true;
-        }
-        if check_hira_kata && (text_lower.contains(&hiragana_lower) || text_lower.contains(&katakana_lower)) {
-            return true;
-        }
-        false
     };
 
     let mut display_items = Vec::new();
@@ -150,9 +153,9 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                 if cur_folder.is_empty() {
                     if let Some(pos) = name.find('/') {
                         let folder = &name[..pos];
-                        folder_names.insert(folder.to_string());
+                        folder_names.insert(folder);
                     } else {
-                        local_snippets.push((name.clone(), content.clone()));
+                        local_snippets.push((name.as_str(), content.as_str()));
                     }
                 } else {
                     let prefix = format!("{}/", cur_folder);
@@ -160,9 +163,9 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                         let sub_name = &name[prefix.len()..];
                         if let Some(pos) = sub_name.find('/') {
                             let folder = &sub_name[..pos];
-                            folder_names.insert(folder.to_string());
+                            folder_names.insert(folder);
                         } else {
-                            local_snippets.push((name.clone(), content.clone()));
+                            local_snippets.push((name.as_str(), content.as_str()));
                         }
                     }
                 }
@@ -175,7 +178,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
 
             let mut folders_matches = Vec::new();
             for f in folder_names {
-                if matches_text(&f) {
+                if matches_text(f) {
                     folders_matches.push(f);
                 }
             }
@@ -192,23 +195,23 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             let mut snippets_matches = Vec::new();
             for (name, content) in local_snippets {
                 let display_name = if let Some(pos) = name.rfind('/') {
-                    name[pos + 1..].to_string()
+                    &name[pos + 1..]
                 } else {
-                    name.clone()
+                    name
                 };
-                if matches_text(&display_name) || matches_text(&name) || matches_text(&content) {
+                if matches_text(display_name) || matches_text(name) || matches_text(content) {
                     snippets_matches.push(name);
                 }
             }
             snippets_matches.sort();
             for s in snippets_matches {
                 let display_name = if let Some(pos) = s.rfind('/') {
-                    s[pos + 1..].to_string()
+                    &s[pos + 1..]
                 } else {
-                    s.clone()
+                    s
                 };
                 display_items.push(format!("[SNIP] {}", display_name));
-                full_paths.push(s);
+                full_paths.push(s.to_string());
             }
         }
         Mode::History => {
@@ -229,6 +232,14 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
 }
 
 fn clean_history_item(s: &str) -> String {
+    let has_control = s.as_bytes().iter().any(|&b| b == b'\r' || b == b'\n' || b == b'\t');
+    if !has_control {
+        let mut clean = String::with_capacity("[HIST] ".len() + s.len());
+        clean.push_str("[HIST] ");
+        clean.push_str(s);
+        return clean;
+    }
+
     let mut clean = String::with_capacity("[HIST] ".len() + s.len());
     clean.push_str("[HIST] ");
     let mut chars = s.chars().peekable();
