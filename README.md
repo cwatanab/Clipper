@@ -3,7 +3,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://microsoft.com/windows)
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.1.0-blue)](file:///D:/Develop/Clipper/clipper-v0.1.0.zip)
+[![Release](https://img.shields.io/badge/release-v0.1.1-blue)](https://github.com/cwatanab/Clipper/releases/tag/v0.1.1)
 
 **Clipper** は、Windows環境のためにゼロから極限までチューニングされた、超高速・超軽量のスニペット＆クリップボード履歴管理ツールです。
 
@@ -48,7 +48,7 @@
 
 ## 🚀 インストール & はじめ方
 
-1. **[clipper-v0.1.0.zip](file:///D:/Develop/Clipper/clipper-v0.1.0.zip) をダウンロード**し、任意の場所に解凍します。
+1. **[clipper-v0.1.1.zip](https://github.com/cwatanab/Clipper/releases/download/v0.1.1/clipper-v0.1.1.zip) をダウンロード**し、任意の場所に解凍します。
 2. 解凍された `clipper.exe` を起動します。タスクトレイに 📋 アイコンが常駐します。
 3. `Shift` を2回、または `Ctrl` を2回連打して検索ウィンドウが表示されれば起動完了です！
 4. スタートアップ（自動起動）に登録したい場合は、ショートカットを Windows の `Startup` フォルダに配置してください。
