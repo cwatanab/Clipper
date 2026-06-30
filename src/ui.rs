@@ -274,9 +274,10 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
 
         let monitor_w = unsafe { win32::GetSystemMetrics(0) };
         let monitor_h = unsafe { win32::GetSystemMetrics(1) };
-        let w = 450; // Increased width slightly as requested
+        let w = 460; // Width with generous margins
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        let h = (max_rows as i32) * 30 + 43;
+        // margin(6)*2 + edit_container_h(34) + gap(4) + rows*item_h(32) + margin(6) = 52 + rows*32
+        let h = (max_rows as i32) * 32 + 52;
 
         let (mut x, mut y) = ((monitor_w - w) / 2, (monitor_h - h) / 2);
         if !active_hwnd.is_null() {

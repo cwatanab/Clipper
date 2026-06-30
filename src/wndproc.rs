@@ -24,30 +24,33 @@ struct ThemeColors {
     window_bg: u32,
     edit_bg: u32,
     text_color: u32,
+    dim_text_color: u32,  // 二次テキスト（アイコン等の補助色）
     sel_bg: u32,
     sel_text: u32,
     border_color: u32,
 }
 
 const LIGHT_THEME: ThemeColors = ThemeColors {
-    window_bg: 0x00F5F5F7,    // macOS/Win11 light gray (RGB: 245, 245, 247)
+    window_bg: 0x00F7F5F5,    // Warm light gray (RGB: 245, 245, 247)
     edit_bg: 0x00FFFFFF,      // Pure white for edit search box
-    text_color: 0x00000000,   // Pure black text (RGB: 0, 0, 0)
-    sel_bg: 0x00E67A00,       // Accent Blue (RGB: 0, 122, 230)
+    text_color: 0x001F1D1D,   // Apple-style soft black (RGB: 29, 29, 31)
+    dim_text_color: 0x008B8686, // Secondary gray (RGB: 134, 134, 139)
+    sel_bg: 0x00E3710,        // Apple Blue (RGB: 0, 113, 227)
     sel_text: 0x00FFFFFF,     // White text for selection
-    border_color: 0x00CCCCCC, // Clean gray border (RGB: 204, 204, 204)
+    border_color: 0x00D7D2D2, // Soft border (RGB: 210, 210, 215)
 };
 
 const DARK_THEME: ThemeColors = ThemeColors {
-    window_bg: 0x001C1C1E,    // macOS/Win11 dark gray (RGB: 28, 28, 30)
-    edit_bg: 0x002C2C2E,      // Darker gray search box (RGB: 44, 44, 46)
-    text_color: 0x00FFFFFF,   // Pure white text (RGB: 255, 255, 255) - slightly brightened
-    sel_bg: 0x00FF9F0A,       // Vibrant Blue (RGB: 10, 159, 255)
+    window_bg: 0x001E1C1C,    // macOS/Win11 dark (RGB: 28, 28, 30)
+    edit_bg: 0x002E2C2C,      // Elevated dark (RGB: 44, 44, 46)
+    text_color: 0x00F7F5F5,   // Soft white (RGB: 247, 245, 245)
+    dim_text_color: 0x009D9898, // Secondary muted (RGB: 152, 152, 157)
+    sel_bg: 0x00FF840A,       // iOS Blue (RGB: 10, 132, 255)
     sel_text: 0x00FFFFFF,     // White text for selection
-    border_color: 0x00444446, // Dark clean border (RGB: 68, 68, 70)
+    border_color: 0x003A3838, // Subtle dark border (RGB: 56, 56, 58)
 };
 
-const IME_ITEM_HEIGHT: u32 = 30;  // Height for listbox candidates (generous padding)
+const IME_ITEM_HEIGHT: u32 = 32;  // Height for listbox candidates (generous padding)
 
 // Update theme colors, brushes, fonts and apply to controls
 pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
@@ -340,10 +343,10 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let cw = rc.right - rc.left;
                 let ch = rc.bottom - rc.top;
                 
-                let margin = 4;
-                let edit_container_h = 30;
-                let edit_h = 24;
-                let gap = 5;
+                let margin = 6;
+                let edit_container_h = 34;
+                let edit_h = 26;
+                let gap = 4;
                 
                 let listbox_y = margin + edit_container_h + gap;
                 let listbox_w = cw - margin * 2;
@@ -359,8 +362,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let list_client_w = list_client_rc.right - list_client_rc.left;
 
                 let edit_y = margin + (edit_container_h - edit_h) / 2;
-                let edit_x = margin + 26; // 4 (margin) + 26 = 30
-                let edit_w = list_client_w - 34; // Align right edge to the listbox client area
+                let edit_x = margin + 28; // margin + icon area
+                let edit_w = list_client_w - 36; // Align right edge to the listbox client area
                 
                 unsafe {
                     win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
@@ -566,19 +569,19 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             };
 
             if selected {
-                // Pill-shaped rounded floating background: add 2px horizontal and 1px vertical gap
+                // Pill-shaped rounded floating background: add 4px horizontal and 2px vertical gap
                 let pill_rc = win32::RECT {
-                    left: rc.left + 2,
-                    top: rc.top,
-                    right: rc.right - 2,
-                    bottom: rc.bottom - 1,
+                    left: rc.left + 4,
+                    top: rc.top + 2,
+                    right: rc.right - 4,
+                    bottom: rc.bottom - 2,
                 };
                 unsafe {
                     let old_brush = win32::SelectObject(hdc, bg_brush);
                     let old_pen = win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
                     
-                    // Draw rounded rectangle with ellipse diameter of 6px
-                    win32::RoundRect(hdc, pill_rc.left, pill_rc.top, pill_rc.right, pill_rc.bottom, 6, 6);
+                    // Draw rounded rectangle with ellipse diameter of 8px (more modern)
+                    win32::RoundRect(hdc, pill_rc.left, pill_rc.top, pill_rc.right, pill_rc.bottom, 8, 8);
                     
                     win32::SelectObject(hdc, old_brush);
                     win32::SelectObject(hdc, old_pen);
@@ -613,9 +616,11 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             // Draw icon if present
             let has_icon = icon_type_opt.is_some();
             if let Some(icon_type) = icon_type_opt {
-                let icon_x = rc.left + 10;
+                let icon_x = rc.left + 12;
                 let icon_y = rc.top + (rc.bottom - rc.top - 16) / 2;
-                draw_vector_icon(hdc, icon_type, icon_x, icon_y, 16, text_color);
+                // Use dim color for non-selected icons, accent color when selected
+                let icon_color = if selected { colors.sel_text } else { colors.dim_text_color };
+                draw_vector_icon(hdc, icon_type, icon_x, icon_y, 16, icon_color);
             }
 
             // Apply normal/bold font based on selection
@@ -629,8 +634,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             }
 
             // Draw candidate text (adjust margin based on pill shape padding)
-            let text_left_margin = if has_icon { 32 } else { 10 };
-            let text_right_margin = if is_folder { 24 } else { 10 };
+            let text_left_margin = if has_icon { 34 } else { 12 };
+            let text_right_margin = if is_folder { 26 } else { 12 };
             let mut text_rc = win32::RECT {
                 left: rc.left + text_left_margin,
                 top: rc.top,
@@ -648,9 +653,10 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Draw folder indicator (chevron-right) on the right edge using native vector drawing
             if is_folder {
-                let arrow_x = rc.right - 18;
+                let arrow_x = rc.right - 20;
                 let arrow_y = rc.top + (rc.bottom - rc.top - 14) / 2;
-                draw_vector_icon(hdc, IconType::ChevronRight, arrow_x, arrow_y, 14, text_color);
+                let chevron_color = if selected { colors.sel_text } else { colors.dim_text_color };
+                draw_vector_icon(hdc, IconType::ChevronRight, arrow_x, arrow_y, 14, chevron_color);
             }
 
             return 1;
@@ -670,8 +676,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let cw = client_rc.right - client_rc.left;
 
             // Draw a rounded input container border/background
-            let margin = 4;
-            let edit_container_h = 30;
+            let margin = 6;
+            let edit_container_h = 34;
             
             // Align to listbox client width
             let mut list_client_w = cw - margin * 2;
@@ -684,26 +690,27 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             }
             
             let container_rc = win32::RECT {
-                left: margin + 2,
+                left: margin + 1,
                 top: margin,
-                right: margin + list_client_w - 2,
+                right: margin + list_client_w - 1,
                 bottom: margin + edit_container_h,
             };
             
-            // Choose border color based on focus
+            // Choose border color and width based on focus
             let focus = EDIT_FOCUSED.load(Ordering::SeqCst);
             let border_color = if focus { colors.sel_bg } else { colors.border_color };
+            let border_width = if focus { 2 } else { 1 };
             
             // Draw container background and border using RoundRect
             unsafe {
-                let border_pen = win32::CreatePen(win32::PS_SOLID, 1, border_color);
+                let border_pen = win32::CreatePen(win32::PS_SOLID, border_width, border_color);
                 let old_pen = win32::SelectObject(hdc, border_pen);
                 
                 let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
                 let old_brush = win32::SelectObject(hdc, bg_brush);
                 
-                // Draw rounded rect with 6px corner radius
-                win32::RoundRect(hdc, container_rc.left, container_rc.top, container_rc.right, container_rc.bottom, 6, 6);
+                // Draw rounded rect with 8px corner radius (more modern)
+                win32::RoundRect(hdc, container_rc.left, container_rc.top, container_rc.right, container_rc.bottom, 10, 10);
                 
                 win32::SelectObject(hdc, old_brush);
                 win32::DeleteObject(bg_brush);
@@ -713,7 +720,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             }
             
             // Draw the 🔍 search icon inside the container using native vector drawing
-            let icon_color = if is_dark { 0x00888888 } else { 0x00888888 }; // subtle gray
+            let icon_color = colors.dim_text_color;
             draw_vector_icon(hdc, IconType::Search, margin + 6, margin + (edit_container_h - 18) / 2, 18, icon_color);
 
             // Draw 1px clean border of the main window itself

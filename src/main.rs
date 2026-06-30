@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         win32::RegisterClassW(&wnd_class);
 
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        let initial_h = (max_rows as i32) * 30 + 43;
+        let initial_h = (max_rows as i32) * 32 + 52;
 
         let hwnd = win32::CreateWindowExW(
             win32::WS_EX_TOPMOST | win32::WS_EX_TOOLWINDOW,
