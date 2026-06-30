@@ -284,7 +284,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         let monitor_h = unsafe { win32::GetSystemMetrics(1) };
         let w = 450; // Increased width slightly as requested
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        let h = (max_rows as i32) * 28 + 38;
+        let h = (max_rows as i32) * 30 + 43;
 
         let (mut x, mut y) = ((monitor_w - w) / 2, (monitor_h - h) / 2);
         if !active_hwnd.is_null() {

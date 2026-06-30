@@ -217,6 +217,7 @@ mod windows {
     pub const ODS_SELECTED: u32 = 0x0001;
 
     pub const DT_LEFT: u32 = 0x00000000;
+    pub const DT_CENTER: u32 = 0x00000001;
     pub const DT_RIGHT: u32 = 0x00000002;
     pub const DT_VCENTER: u32 = 0x00000004;
     pub const DT_SINGLELINE: u32 = 0x00000020;
@@ -267,6 +268,7 @@ mod windows {
     unsafe extern "system" {
         pub fn GetForegroundWindow() -> HWND;
         pub fn SetForegroundWindow(hwnd: HWND) -> BOOL;
+        pub fn GetFocus() -> HWND;
         pub fn IsWindow(hwnd: HWND) -> BOOL;
         pub fn SetWindowsHookExW(id_hook: i32, lpfn: HOOKPROC, hmod: HINSTANCE, dw_thread_id: u32) -> HHOOK;
         pub fn UnhookWindowsHookEx(hhk: HHOOK) -> BOOL;
@@ -330,6 +332,10 @@ mod windows {
         pub fn RoundRect(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) -> BOOL;
         pub fn MoveToEx(hdc: HDC, x: i32, y: i32, lppt: *mut POINT) -> BOOL;
         pub fn LineTo(hdc: HDC, x: i32, y: i32) -> BOOL;
+        pub fn AddFontMemResourceEx(pFileView: *const std::ffi::c_void, cjSize: u32, pvReserved: *mut std::ffi::c_void, pNumFonts: *mut u32) -> *mut std::ffi::c_void;
+        pub fn RemoveFontMemResourceEx(h: *mut std::ffi::c_void) -> BOOL;
+        pub fn Polygon(hdc: HDC, apt: *const POINT, cpt: i32) -> BOOL;
+        pub fn Ellipse(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
     }
 
     #[link(name = "shell32")]
@@ -361,6 +367,8 @@ mod windows {
     }
 
     pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    pub const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    pub const DWMWCP_ROUND: u32 = 2;
 
     #[link(name = "uxtheme")]
     unsafe extern "system" {
@@ -460,6 +468,8 @@ mod windows {
     pub unsafe fn GetProcAddress(_m: HWND, _n: *const u8) -> *mut std::ffi::c_void { std::ptr::null_mut() }
     pub unsafe fn DwmSetWindowAttribute(_h: HWND, _a: u32, _p: *const std::ffi::c_void, _c: u32) -> i32 { 0 }
     pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    pub const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    pub const DWMWCP_ROUND: u32 = 2;
     #[repr(C)]
     #[derive(Clone, Copy)]
     pub struct DATA_BLOB {
@@ -469,6 +479,11 @@ mod windows {
     pub unsafe fn CryptProtectData(_a: *const DATA_BLOB, _b: *const u16, _c: *const DATA_BLOB, _d: *mut std::ffi::c_void, _e: *mut std::ffi::c_void, _f: u32, _g: *mut DATA_BLOB) -> i32 { 0 }
     pub unsafe fn CryptUnprotectData(_a: *const DATA_BLOB, _b: *mut *mut u16, _c: *const DATA_BLOB, _d: *mut std::ffi::c_void, _e: *mut std::ffi::c_void, _f: u32, _g: *mut DATA_BLOB) -> i32 { 0 }
     pub unsafe fn LocalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn AddFontMemResourceEx(_a: *const std::ffi::c_void, _b: u32, _c: *mut std::ffi::c_void, _d: *mut u32) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn RemoveFontMemResourceEx(_h: *mut std::ffi::c_void) -> i32 { 0 }
+    pub unsafe fn Polygon(_hdc: usize, _apt: *const std::ffi::c_void, _cpt: i32) -> i32 { 0 }
+    pub unsafe fn Ellipse(_hdc: usize, _left: i32, _top: i32, _right: i32, _bottom: i32) -> i32 { 0 }
+    pub unsafe fn GetFocus() -> HWND { std::ptr::null_mut() }
 }
 
 pub use windows::*;

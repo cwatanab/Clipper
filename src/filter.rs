@@ -24,7 +24,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
 
                 // Parent folder navigation
                 if !cur_folder.is_empty() {
-                    display_items.push(format!("📁 .. / {}", cur_folder));
+                    display_items.push(format!("[DIR] .. / {}", cur_folder));
                     full_paths.push("..".to_string());
                 }
 
@@ -57,7 +57,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                 let mut folders: Vec<String> = folder_names.into_iter().collect();
                 folders.sort();
                 for f in folders {
-                    display_items.push(format!("📁 {}", f));
+                    display_items.push(format!("[DIR] {}", f));
                     if cur_folder.is_empty() {
                         full_paths.push(format!("dir:{}", f));
                     } else {
@@ -73,7 +73,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                     } else {
                         s.clone()
                     };
-                    display_items.push(display_name);
+                    display_items.push(format!("[SNIP] {}", display_name));
                     full_paths.push(s);
                 }
 
@@ -82,10 +82,11 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             Mode::History => {
                 let display: Vec<String> = state.history.iter()
                     .map(|s| {
-                        s.replace("\r\n", " ")
-                         .replace('\n', " ")
-                         .replace('\r', " ")
-                         .replace('\t', " ")
+                        let clean = s.replace("\r\n", " ")
+                                     .replace('\n', " ")
+                                     .replace('\r', " ")
+                                     .replace('\t', " ");
+                        format!("[HIST] {}", clean)
                     })
                     .collect();
                 let full: Vec<String> = state.history.iter().cloned().collect();
@@ -188,7 +189,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             }
 
             if !cur_folder.is_empty() {
-                display_items.push(format!("📁 .. / {}", cur_folder));
+                display_items.push(format!("[DIR] .. / {}", cur_folder));
                 full_paths.push("..".to_string());
             }
 
@@ -200,7 +201,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             }
             folders_matches.sort();
             for f in folders_matches {
-                display_items.push(format!("📁 {}", f));
+                display_items.push(format!("[DIR] {}", f));
                 if cur_folder.is_empty() {
                     full_paths.push(format!("dir:{}", f));
                 } else {
@@ -226,7 +227,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                 } else {
                     s.clone()
                 };
-                display_items.push(display_name);
+                display_items.push(format!("[SNIP] {}", display_name));
                 full_paths.push(s);
             }
         }
@@ -239,7 +240,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                                     .replace('\n', " ")
                                     .replace('\r', " ")
                                     .replace('\t', " ");
-                    matches_display.push(clean);
+                    matches_display.push(format!("[HIST] {}", clean));
                     matches_full.push(text.clone());
                 }
             }

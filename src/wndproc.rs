@@ -1,4 +1,7 @@
 use arboard::Clipboard;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub static EDIT_FOCUSED: AtomicBool = AtomicBool::new(false);
 
 use crate::darkmode;
 use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
@@ -45,7 +48,7 @@ const DARK_THEME: ThemeColors = ThemeColors {
     border_color: 0x00444446, // Dark clean border (RGB: 68, 68, 70)
 };
 
-const IME_ITEM_HEIGHT: u32 = 28;  // Height for listbox candidates (generous padding)
+const IME_ITEM_HEIGHT: u32 = 30;  // Height for listbox candidates (generous padding)
 
 // Update theme colors, brushes, fonts and apply to controls
 pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
@@ -98,11 +101,14 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
             *FONT_LISTBOX_BOLD.lock().unwrap() = Some(SafeHFONT(font_listbox_bold));
         }
 
+
+
         // Apply to main window and child controls
         darkmode::apply_to_window(hwnd, is_dark);
 
         if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
-            darkmode::apply_to_control(*hwnd_edit, is_dark);
+            let empty_str = [0u16];
+            win32::SetWindowTheme(*hwnd_edit, empty_str.as_ptr(), empty_str.as_ptr());
             darkmode::apply_to_control(*hwnd_listbox, is_dark);
 
             if let Some(SafeHFONT(font)) = FONT_EDIT.lock().unwrap().as_ref() {
@@ -196,6 +202,18 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
     match msg {
         win32::WM_CREATE => {
             state::log_debug("WM_CREATE message received.");
+            
+            // Set rounded corners for Windows 11
+            let corner_preference = win32::DWMWCP_ROUND;
+            unsafe {
+                win32::DwmSetWindowAttribute(
+                    hwnd,
+                    win32::DWMWA_WINDOW_CORNER_PREFERENCE,
+                    &corner_preference as *const _ as *const std::ffi::c_void,
+                    std::mem::size_of::<u32>() as u32,
+                );
+            }
+
             let hinstance = unsafe { win32::GetModuleHandleW(std::ptr::null()) };
 
             // Search box without client edge (0 style)
@@ -258,26 +276,95 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let cw = rc.right - rc.left;
                 let ch = rc.bottom - rc.top;
                 
-                // Add inner margins for modern aesthetics
-                let margin = 5;
+                let margin = 4;
+                let edit_container_h = 30;
                 let edit_h = 24;
-                let gap = 4;
+                let gap = 5;
+                
+                let listbox_y = margin + edit_container_h + gap;
+                let listbox_w = cw - margin * 2;
+                let listbox_h = ch - listbox_y - margin;
+                
                 unsafe {
-                    win32::MoveWindow(*hwnd_edit, margin, margin, cw - margin * 2, edit_h, 1);
-                    win32::MoveWindow(*hwnd_listbox, margin, margin + edit_h + gap, cw - margin * 2, ch - margin * 2 - edit_h - gap, 1);
+                    win32::MoveWindow(*hwnd_listbox, margin, listbox_y, listbox_w, listbox_h, 1);
+                }
+
+                // Get listbox client width to align the edit control exactly to the listbox items area
+                let mut list_client_rc: win32::RECT = unsafe { std::mem::zeroed() };
+                unsafe { win32::GetClientRect(*hwnd_listbox, &mut list_client_rc) };
+                let list_client_w = list_client_rc.right - list_client_rc.left;
+
+                let edit_y = margin + (edit_container_h - edit_h) / 2;
+                let edit_x = margin + 26; // 4 (margin) + 26 = 30
+                let edit_w = list_client_w - 34; // Align right edge to the listbox client area
+                
+                unsafe {
+                    win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
                 }
             }
         }
         win32::WM_COMMAND => {
             let ctrl_id = wparam & 0xFFFF;
             let code = (wparam >> 16) & 0xFFFF;
-            if ctrl_id == 101 && code == win32::EN_CHANGE as usize {
-                ui::update_listbox_items(MIGEMO_DICT.get());
+            if ctrl_id == 101 {
+                if code == win32::EN_CHANGE as usize {
+                    ui::update_listbox_items(MIGEMO_DICT.get());
+                } else if code == 0x0100 /* EN_SETFOCUS */ {
+                    EDIT_FOCUSED.store(true, Ordering::SeqCst);
+                    unsafe { win32::InvalidateRect(hwnd, std::ptr::null(), 1); }
+                 } else if code == 0x0200 /* EN_KILLFOCUS */ {
+                    EDIT_FOCUSED.store(false, Ordering::SeqCst);
+                    unsafe { win32::InvalidateRect(hwnd, std::ptr::null(), 1); }
+                    
+                    let focus_hwnd = unsafe { win32::GetFocus() };
+                    let is_child = if focus_hwnd.is_null() {
+                        false
+                    } else {
+                        focus_hwnd == hwnd ||
+                        EDIT_HWND.get().map_or(false, |h| focus_hwnd == h.0) ||
+                        LISTBOX_HWND.get().map_or(false, |h| focus_hwnd == h.0)
+                    };
+                    if !is_child {
+                        ui::hide_window();
+                    }
+                }
             } else if ctrl_id == 102 {
                 if code == 2 { // LBN_DBLCLK
                     ui::on_select();
                 } else if code == LBN_SELCHANGE as usize {
                     update_top_index();
+                    
+                    // Navigate folders immediately on a single click
+                    if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                        let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
+                        if cur != win32::LB_ERR {
+                            let mut is_folder = false;
+                            {
+                                let state_guard = APP_STATE.lock().unwrap();
+                                if let Some(state) = &*state_guard {
+                                    if state.mode == Mode::Snippet && (cur as usize) < state.current_full_paths.len() {
+                                        let target = &state.current_full_paths[cur as usize];
+                                        is_folder = target == ".." || target.starts_with("dir:");
+                                    }
+                                }
+                            }
+                            if is_folder {
+                                ui::on_select();
+                            }
+                        }
+                    }
+                } else if code == 5 { // LBN_KILLFOCUS
+                    let focus_hwnd = unsafe { win32::GetFocus() };
+                    let is_child = if focus_hwnd.is_null() {
+                        false
+                    } else {
+                        focus_hwnd == hwnd ||
+                        EDIT_HWND.get().map_or(false, |h| focus_hwnd == h.0) ||
+                        LISTBOX_HWND.get().map_or(false, |h| focus_hwnd == h.0)
+                    };
+                    if !is_child {
+                        ui::hide_window();
+                    }
                 }
             }
         }
@@ -403,12 +490,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             };
 
             if selected {
-                // Pill-shaped rounded floating background: add 4px horizontal and 2px vertical margins
+                // Pill-shaped rounded floating background: add 2px horizontal and 1px vertical gap
                 let pill_rc = win32::RECT {
-                    left: rc.left + 4,
-                    top: rc.top + 2,
-                    right: rc.right - 4,
-                    bottom: rc.bottom - 2,
+                    left: rc.left + 2,
+                    top: rc.top,
+                    right: rc.right - 2,
+                    bottom: rc.bottom - 1,
                 };
                 unsafe {
                     let old_brush = win32::SelectObject(hdc, bg_brush);
@@ -429,6 +516,30 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             unsafe { win32::SetBkMode(hdc, 1 /* TRANSPARENT */) };
 
+            // Parse text and tags: "[DIR] ", "[SNIP] ", "[HIST] "
+            let display_text = String::from_utf16_lossy(&buf[..len]);
+            let (icon_type_opt, clean_text) = if display_text.starts_with("[DIR] ") {
+                if display_text.contains("..") {
+                    (Some(IconType::ParentFolder), &display_text["[DIR] ".len()..])
+                } else {
+                    (Some(IconType::Folder), &display_text["[DIR] ".len()..])
+                }
+            } else if display_text.starts_with("[SNIP] ") {
+                (Some(IconType::Snippet), &display_text["[SNIP] ".len()..])
+            } else if display_text.starts_with("[HIST] ") {
+                (Some(IconType::History), &display_text["[HIST] ".len()..])
+            } else {
+                (None, display_text.as_str())
+            };
+
+            // Draw icon if present
+            let has_icon = icon_type_opt.is_some();
+            if let Some(icon_type) = icon_type_opt {
+                let icon_x = rc.left + 10;
+                let icon_y = rc.top + (rc.bottom - rc.top - 16) / 2;
+                draw_vector_icon(hdc, icon_type, icon_x, icon_y, 16, text_color);
+            }
+
             // Apply normal/bold font based on selection
             let font_to_use = if selected {
                 FONT_LISTBOX_BOLD.lock().unwrap()
@@ -440,47 +551,34 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             }
 
             // Draw candidate text (adjust margin based on pill shape padding)
-            let text_left_margin = 10;
-            let text_right_margin = if is_folder {
-                24
-            } else {
-                10
-            };
+            let text_left_margin = if has_icon { 32 } else { 10 };
+            let text_right_margin = if is_folder { 24 } else { 10 };
             let mut text_rc = win32::RECT {
                 left: rc.left + text_left_margin,
                 top: rc.top,
                 right: rc.right - text_right_margin,
                 bottom: rc.bottom,
             };
+            
+            let clean_text_w = util::to_wstring(clean_text);
             unsafe {
                 win32::SetTextColor(hdc, text_color);
                 win32::DrawTextW(
-                    hdc, buf.as_ptr(), len as i32, &mut text_rc,
+                    hdc, clean_text_w.as_ptr(), -1, &mut text_rc,
                     win32::DT_SINGLELINE | win32::DT_VCENTER | win32::DT_LEFT | win32::DT_END_ELLIPSIS | win32::DT_NOPREFIX,
                 );
             }
 
-            // Draw folder indicator `>` on the right edge
+            // Draw folder indicator (chevron-right) on the right edge using native vector drawing
             if is_folder {
-                let mut arrow_rc = win32::RECT {
-                    left: rc.right - 20,
-                    top: rc.top,
-                    right: rc.right - 6,
-                    bottom: rc.bottom,
-                };
-                unsafe {
-                    win32::SetTextColor(hdc, text_color);
-                    win32::DrawTextW(
-                        hdc, util::wstr_arrow().as_ptr(), -1, &mut arrow_rc,
-                        win32::DT_SINGLELINE | win32::DT_VCENTER | win32::DT_RIGHT | win32::DT_NOPREFIX,
-                    );
-                }
+                let arrow_x = rc.right - 18;
+                let arrow_y = rc.top + (rc.bottom - rc.top - 14) / 2;
+                draw_vector_icon(hdc, IconType::ChevronRight, arrow_x, arrow_y, 14, text_color);
             }
 
             return 1;
         }
         win32::WM_PAINT => {
-            // Paint default window contents, then custom paint border
             let res = unsafe { win32::DefWindowProcW(hwnd, msg, wparam, lparam) };
 
             let is_dark = {
@@ -492,8 +590,56 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let hdc = unsafe { win32::GetDC(hwnd) };
             let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
             unsafe { win32::GetClientRect(hwnd, &mut rc) };
+            let cw = rc.right - rc.left;
 
-            // Draw 1px clean border
+            // Draw a rounded input container border/background
+            let margin = 4;
+            let edit_container_h = 30;
+            
+            // Align to listbox client width
+            let mut list_client_w = cw - margin * 2;
+            if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                let mut list_client_rc: win32::RECT = unsafe { std::mem::zeroed() };
+                unsafe {
+                    win32::GetClientRect(*hwnd_listbox, &mut list_client_rc);
+                }
+                list_client_w = list_client_rc.right - list_client_rc.left;
+            }
+            
+            let container_rc = win32::RECT {
+                left: margin + 2,
+                top: margin,
+                right: margin + list_client_w - 2,
+                bottom: margin + edit_container_h,
+            };
+            
+            // Choose border color based on focus
+            let focus = EDIT_FOCUSED.load(Ordering::SeqCst);
+            let border_color = if focus { colors.sel_bg } else { colors.border_color };
+            
+            // Draw container background and border using RoundRect
+            unsafe {
+                let border_pen = win32::CreatePen(win32::PS_SOLID, 1, border_color);
+                let old_pen = win32::SelectObject(hdc, border_pen);
+                
+                let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
+                let old_brush = win32::SelectObject(hdc, bg_brush);
+                
+                // Draw rounded rect with 6px corner radius
+                win32::RoundRect(hdc, container_rc.left, container_rc.top, container_rc.right, container_rc.bottom, 6, 6);
+                
+                win32::SelectObject(hdc, old_brush);
+                win32::DeleteObject(bg_brush);
+                
+                win32::SelectObject(hdc, old_pen);
+                win32::DeleteObject(border_pen);
+            }
+            
+            // Draw the 🔍 search icon inside the container using native vector drawing
+            let icon_color = if is_dark { 0x00888888 } else { 0x00888888 }; // subtle gray
+            draw_vector_icon(hdc, IconType::Search, margin + 6, margin + (edit_container_h - 18) / 2, 18, icon_color);
+
+            // Draw 1px clean border of the main window itself
             let mut delete_border = false;
             let border_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().as_ref() {
                 *brush
@@ -506,7 +652,6 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 unsafe { win32::DeleteObject(border_brush) };
             }
 
-            // Fill window background outside controls to ensure clean look
             unsafe { win32::ReleaseDC(hwnd, hdc) };
             return res;
         }
@@ -634,3 +779,125 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
     }
     0
 }
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum IconType {
+    Search,
+    Folder,
+    ParentFolder,
+    Snippet,
+    History,
+    ChevronRight,
+}
+
+pub fn draw_vector_icon(hdc: win32::HDC, icon_type: IconType, x: i32, y: i32, size: i32, color: u32) {
+    let s = |v: f32| (v * size as f32 / 24.0).round() as i32;
+
+    unsafe {
+        let pen = win32::CreatePen(win32::PS_SOLID, 2, color);
+        let old_pen = win32::SelectObject(hdc, pen);
+        let null_brush = win32::GetStockObject(5 /* NULL_BRUSH */);
+        let old_brush = win32::SelectObject(hdc, null_brush);
+
+        match icon_type {
+            IconType::Search => {
+                // Octagon circle: points (9, 4), (13, 4), (16, 7), (16, 11), (13, 14), (9, 14), (6, 11), (6, 7) -> close
+                win32::MoveToEx(hdc, x + s(9.0), y + s(4.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(13.0), y + s(4.0));
+                win32::LineTo(hdc, x + s(16.0), y + s(7.0));
+                win32::LineTo(hdc, x + s(16.0), y + s(11.0));
+                win32::LineTo(hdc, x + s(13.0), y + s(14.0));
+                win32::LineTo(hdc, x + s(9.0), y + s(14.0));
+                win32::LineTo(hdc, x + s(6.0), y + s(11.0));
+                win32::LineTo(hdc, x + s(6.0), y + s(7.0));
+                win32::LineTo(hdc, x + s(9.0), y + s(4.0));
+
+                // Handle: from (13.5, 13.5) to (20, 20)
+                win32::MoveToEx(hdc, x + s(13.5), y + s(13.5), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(20.0), y + s(20.0));
+            }
+            IconType::Folder => {
+                // Folder outline: (4, 6) -> (9, 6) -> (11, 8) -> (20, 8) -> (20, 18) -> (4, 18) -> close
+                win32::MoveToEx(hdc, x + s(4.0), y + s(6.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(9.0), y + s(6.0));
+                win32::LineTo(hdc, x + s(11.0), y + s(8.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(18.0));
+                win32::LineTo(hdc, x + s(4.0), y + s(18.0));
+                win32::LineTo(hdc, x + s(4.0), y + s(6.0));
+            }
+            IconType::ParentFolder => {
+                // Folder outline
+                win32::MoveToEx(hdc, x + s(4.0), y + s(6.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(9.0), y + s(6.0));
+                win32::LineTo(hdc, x + s(11.0), y + s(8.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(18.0));
+                win32::LineTo(hdc, x + s(4.0), y + s(18.0));
+                win32::LineTo(hdc, x + s(4.0), y + s(6.0));
+
+                // Up arrow shaft inside: (12, 10) to (12, 16)
+                win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(12.0), y + s(16.0));
+                // Up arrow head: (12, 10) to (9, 13), and (12, 10) to (15, 13)
+                win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(9.0), y + s(13.0));
+                win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(15.0), y + s(13.0));
+            }
+            IconType::Snippet => {
+                // Outlined sheet: (6, 2) to (14, 2) to (20, 8) to (20, 22) to (6, 22) to close.
+                win32::MoveToEx(hdc, x + s(6.0), y + s(2.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(14.0), y + s(2.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(22.0));
+                win32::LineTo(hdc, x + s(6.0), y + s(22.0));
+                win32::LineTo(hdc, x + s(6.0), y + s(2.0));
+
+                // Folded corner: (14, 2) to (14, 8) to (20, 8)
+                win32::MoveToEx(hdc, x + s(14.0), y + s(2.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(14.0), y + s(8.0));
+                win32::LineTo(hdc, x + s(20.0), y + s(8.0));
+
+                // Lines inside: (9, 12) to (17, 12), and (9, 16) to (17, 16)
+                win32::MoveToEx(hdc, x + s(9.0), y + s(12.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(17.0), y + s(12.0));
+                win32::MoveToEx(hdc, x + s(9.0), y + s(16.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(17.0), y + s(16.0));
+            }
+            IconType::History => {
+                // Clipboard: (7, 4) to (5, 4) to (5, 22) to (19, 22) to (19, 4) to (17, 4)
+                win32::MoveToEx(hdc, x + s(7.0), y + s(4.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(5.0), y + s(4.0));
+                win32::LineTo(hdc, x + s(5.0), y + s(22.0));
+                win32::LineTo(hdc, x + s(19.0), y + s(22.0));
+                win32::LineTo(hdc, x + s(19.0), y + s(4.0));
+                win32::LineTo(hdc, x + s(17.0), y + s(4.0));
+
+                // Clipboard clip: (8, 4) to (8, 2) to (16, 2) to (16, 4) to close.
+                win32::MoveToEx(hdc, x + s(8.0), y + s(4.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(8.0), y + s(2.0));
+                win32::LineTo(hdc, x + s(16.0), y + s(2.0));
+                win32::LineTo(hdc, x + s(16.0), y + s(4.0));
+                win32::LineTo(hdc, x + s(8.0), y + s(4.0));
+
+                // Horizontal clipboard lines
+                win32::MoveToEx(hdc, x + s(8.0), y + s(10.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(16.0), y + s(10.0));
+                win32::MoveToEx(hdc, x + s(8.0), y + s(14.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(16.0), y + s(14.0));
+            }
+            IconType::ChevronRight => {
+                // ChevronRight: (9, 6) to (15, 12) to (9, 18)
+                win32::MoveToEx(hdc, x + s(9.0), y + s(6.0), std::ptr::null_mut());
+                win32::LineTo(hdc, x + s(15.0), y + s(12.0));
+                win32::LineTo(hdc, x + s(9.0), y + s(18.0));
+            }
+        }
+
+        win32::SelectObject(hdc, old_pen);
+        win32::SelectObject(hdc, old_brush);
+        win32::DeleteObject(pen);
+    }
+}
+

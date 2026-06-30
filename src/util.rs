@@ -214,7 +214,6 @@ macro_rules! define_wstring_cache {
 
 define_wstring_cache!(wstr_edit, "EDIT");
 define_wstring_cache!(wstr_listbox, "LISTBOX");
-define_wstring_cache!(wstr_arrow, ">");
 define_wstring_cache!(wstr_cue, "検索 (Migemo)...");
 define_wstring_cache!(wstr_explorer_dark, "DarkMode_Explorer");
 define_wstring_cache!(wstr_explorer, "Explorer");
