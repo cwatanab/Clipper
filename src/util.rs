@@ -2,9 +2,6 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
 
-use chrono::Local;
-use minijinja::{context, Environment};
-
 use crate::win32;
 
 pub fn to_wstring(s: &str) -> Vec<u16> {
@@ -32,9 +29,11 @@ pub fn create_ui_font(name: &str, size: i32, weight: i32) -> win32::HFONT {
 }
 
 pub fn get_app_dir() -> PathBuf {
-    let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("clipper");
-    path
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        PathBuf::from(app_data).join("clipper")
+    } else {
+        PathBuf::from(".")
+    }
 }
 
 pub fn load_snippets() -> Vec<(String, String)> {
@@ -185,19 +184,110 @@ pub fn save_history(history: &VecDeque<String>) {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SYSTEMTIME {
+    w_year: u16,
+    w_month: u16,
+    w_day_of_week: u16,
+    w_day: u16,
+    w_hour: u16,
+    w_minute: u16,
+    w_second: u16,
+    w_milliseconds: u16,
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetLocalTime(lpSystemTime: *mut SYSTEMTIME);
+}
+
+#[cfg(not(target_os = "windows"))]
+unsafe fn GetLocalTime(_lpSystemTime: *mut SYSTEMTIME) {}
+
 pub fn render_template(template_str: &str, clipboard_text: &str) -> String {
-    let mut env = Environment::new();
-    if let Err(_) = env.add_template("temp", template_str) {
-        return template_str.to_string();
+    let now = unsafe {
+        let mut st = std::mem::zeroed::<SYSTEMTIME>();
+        GetLocalTime(&mut st);
+        format!(
+            "{:04}/{:02}/{:02} {:02}:{:02}:{:02}",
+            st.w_year, st.w_month, st.w_day, st.w_hour, st.w_minute, st.w_second
+        )
+    };
+    template_str
+        .replace("{{ datetime }}", &now)
+        .replace("{{ clipboard }}", clipboard_text)
+}
+
+pub fn get_clipboard_text() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        if win32::OpenClipboard(std::ptr::null_mut()) == 0 {
+            return None;
+        }
+        let h_data = win32::GetClipboardData(win32::CF_UNICODETEXT);
+        if h_data.is_null() {
+            win32::CloseClipboard();
+            return None;
+        }
+        let p_data = win32::GlobalLock(h_data) as *const u16;
+        if p_data.is_null() {
+            win32::CloseClipboard();
+            return None;
+        }
+        let mut len = 0;
+        while *p_data.add(len) != 0 {
+            len += 1;
+        }
+        let slice = std::slice::from_raw_parts(p_data, len);
+        let text = String::from_utf16_lossy(slice);
+        win32::GlobalUnlock(h_data);
+        win32::CloseClipboard();
+        Some(text)
     }
-    if let Ok(tmpl) = env.get_template("temp") {
-        let now = Local::now().format("%Y/%m/%d %H:%M:%S").to_string();
-        tmpl.render(context! {
-            datetime => now,
-            clipboard => clipboard_text,
-        }).unwrap_or_else(|_| template_str.to_string())
-    } else {
-        template_str.to_string()
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+pub fn set_clipboard_text(text: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        if win32::OpenClipboard(std::ptr::null_mut()) == 0 {
+            return false;
+        }
+        if win32::EmptyClipboard() == 0 {
+            win32::CloseClipboard();
+            return false;
+        }
+        let text_w = to_wstring(text);
+        let bytes_len = text_w.len() * std::mem::size_of::<u16>();
+        let h_mem = win32::GlobalAlloc(win32::GMEM_MOVEABLE, bytes_len);
+        if h_mem.is_null() {
+            win32::CloseClipboard();
+            return false;
+        }
+        let p_mem = win32::GlobalLock(h_mem) as *mut u16;
+        if p_mem.is_null() {
+            win32::GlobalFree(h_mem);
+            win32::CloseClipboard();
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(text_w.as_ptr(), p_mem, text_w.len());
+        win32::GlobalUnlock(h_mem);
+        if win32::SetClipboardData(win32::CF_UNICODETEXT, h_mem).is_null() {
+            win32::GlobalFree(h_mem);
+            win32::CloseClipboard();
+            return false;
+        }
+        win32::CloseClipboard();
+        true
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
     }
 }
 

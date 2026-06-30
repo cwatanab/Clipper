@@ -3,14 +3,11 @@ use std::sync::atomic::AtomicU32;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-use once_cell::sync::Lazy;
-
 use crate::win32;
 
 // カスタムメッセージ
 pub const WM_TRIGGER_SNIPPET: u32 = 0x8000 + 2;
 pub const WM_TRIGGER_HISTORY: u32 = 0x8000 + 3;
-pub const WM_CLIPBOARD_CHANGED: u32 = 0x8000 + 4;
 pub const WM_FILTER_COMPLETE: u32 = 0x8000 + 5;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -58,7 +55,7 @@ unsafe impl Sync for SafeHFONT {}
 
 pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
-pub static APP_STATE: Lazy<Mutex<Option<AppState>>> = Lazy::new(|| Mutex::new(None));
+pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
 use crate::config::Config;
 pub static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -85,18 +82,15 @@ pub fn clear_migemo_dict() {
     *guard = None;
 }
 
-pub static BRUSH_BG: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
-pub static BRUSH_CTRL: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
-pub static BRUSH_EDIT: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
-pub static BRUSH_LISTBOX: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
-pub static BRUSH_BORDER: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
-pub static BRUSH_SEL_BG: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
-pub static FONT_EDIT: Lazy<Mutex<Option<SafeHFONT>>> = Lazy::new(|| Mutex::new(None));
-pub static FONT_LISTBOX: Lazy<Mutex<Option<SafeHFONT>>> = Lazy::new(|| Mutex::new(None));
-pub static FONT_LISTBOX_BOLD: Lazy<Mutex<Option<SafeHFONT>>> = Lazy::new(|| Mutex::new(None));
-
-#[allow(dead_code)]
-pub static LOG_QUEUE: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
+pub static BRUSH_BG: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static BRUSH_CTRL: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static BRUSH_EDIT: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static BRUSH_LISTBOX: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static BRUSH_BORDER: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static BRUSH_SEL_BG: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static FONT_EDIT: Mutex<Option<SafeHFONT>> = Mutex::new(None);
+pub static FONT_LISTBOX: Mutex<Option<SafeHFONT>> = Mutex::new(None);
+pub static FONT_LISTBOX_BOLD: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 
 pub fn log_debug(_msg: &str) {}
 

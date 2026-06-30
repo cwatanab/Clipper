@@ -19,9 +19,13 @@ impl Default for Config {
 
 impl Config {
     pub fn get_path() -> PathBuf {
-        let mut path = dirs::config_dir().unwrap_or_else(|| {
-            dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
-        });
+        let mut path = if let Ok(app_data) = std::env::var("APPDATA") {
+            PathBuf::from(app_data)
+        } else if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            PathBuf::from(user_profile)
+        } else {
+            PathBuf::from(".")
+        };
         path.push("Clipper");
         path.push("config.toml");
         path

@@ -1,8 +1,6 @@
 use std::thread;
 use std::time::Duration;
 use std::sync::atomic::{AtomicU32, Ordering};
-
-use arboard::Clipboard;
 use crate::filter;
 use crate::state::{self, Mode, SafeHWND, APP_STATE, EDIT_HWND, LISTBOX_HWND, MAIN_HWND};
 use crate::util;
@@ -188,11 +186,9 @@ pub fn on_select() {
 
             let mut success = false;
             for _ in 0..10 {
-                if let Ok(mut clipboard) = Clipboard::new() {
-                    if clipboard.set_text(final_text.clone()).is_ok() {
-                        success = true;
-                        break;
-                    }
+                if util::set_clipboard_text(&final_text) {
+                    success = true;
+                    break;
                 }
                 thread::sleep(Duration::from_millis(50));
             }
@@ -339,6 +335,7 @@ pub fn hide_window() {
             // Clear search result lists to free up memory immediately
             state.current_results.clear();
             state.current_full_paths.clear();
+            state.snippets = std::sync::Arc::new(Vec::new());
         }
     }
     

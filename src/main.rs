@@ -11,13 +11,8 @@ mod util;
 mod win32;
 mod wndproc;
 
-use std::thread;
-use std::time::Duration;
-
-use arboard::Clipboard;
-
 use crate::hook::keyboard_hook_proc;
-use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND, WM_CLIPBOARD_CHANGED};
+use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND};
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app_state = state::AppState {
         history: std::sync::Arc::new(util::load_history()),
-        snippets: std::sync::Arc::new(util::load_snippets()),
+        snippets: std::sync::Arc::new(Vec::new()),
         mode: Mode::Snippet,
         visible: false,
         current_results: Vec::new(),
@@ -51,10 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         filter_generation: 0,
     };
 
-    if let Ok(mut cb) = Clipboard::new() {
-        if let Ok(text) = cb.get_text() {
-            app_state.last_clipboard_value = text;
-        }
+    if let Some(text) = util::get_clipboard_text() {
+        app_state.last_clipboard_value = text;
     }
 
     *APP_STATE.lock().unwrap() = Some(app_state);
@@ -113,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         nid.szTip[..tip_len].copy_from_slice(&tip_w[..tip_len]);
 
         win32::Shell_NotifyIconW(win32::NIM_ADD, &nid);
+        win32::AddClipboardFormatListener(hwnd);
 
         let hinstance_hook = win32::GetModuleHandleW(std::ptr::null());
         let hook = win32::SetWindowsHookExW(
@@ -133,24 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             win32::SetProcessWorkingSetSize(handle, !0, !0);
         }
 
-        thread::spawn(move || {
-            let mut clipboard = match Clipboard::new() {
-                Ok(c) => c,
-                Err(_) => return,
-            };
-            let mut last_text = String::new();
-            loop {
-                if let Ok(text) = clipboard.get_text() {
-                    if !text.is_empty() && text != last_text {
-                        last_text = text.clone();
-                        if let Some(SafeHWND(main_hwnd_val)) = MAIN_HWND.get() {
-                            win32::PostMessageW(*main_hwnd_val, WM_CLIPBOARD_CHANGED, 0, 0);
-                        }
-                    }
-                }
-                thread::sleep(Duration::from_millis(500));
-            }
-        });
+
 
         let mut msg = std::mem::zeroed();
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
@@ -178,6 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !hook.is_null() {
             win32::UnhookWindowsHookEx(hook);
         }
+        win32::RemoveClipboardFormatListener(hwnd);
         win32::Shell_NotifyIconW(win32::NIM_DELETE, &nid);
     }
 

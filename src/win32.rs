@@ -144,6 +144,9 @@ mod windows {
     pub const WM_KEYUP: u32 = 0x0101;
     pub const WM_SYSKEYDOWN: u32 = 0x0104;
     pub const WM_SYSKEYUP: u32 = 0x0105;
+    pub const WM_CLIPBOARDUPDATE: u32 = 0x031D;
+    pub const CF_UNICODETEXT: u32 = 13;
+    pub const GMEM_MOVEABLE: u32 = 0x0002;
 
     pub const VK_SHIFT: u16 = 0x10;
     pub const VK_CONTROL: u16 = 0x11;
@@ -316,6 +319,13 @@ mod windows {
         pub fn ReleaseDC(hWnd: HWND, hDC: HDC) -> i32;
         pub fn GetDpiForWindow(hwnd: HWND) -> u32;
         pub fn MonitorFromWindow(hwnd: HWND, dwFlags: u32) -> *mut c_void;
+        pub fn AddClipboardFormatListener(hwnd: HWND) -> BOOL;
+        pub fn RemoveClipboardFormatListener(hwnd: HWND) -> BOOL;
+        pub fn OpenClipboard(hWndNewOwner: HWND) -> BOOL;
+        pub fn CloseClipboard() -> BOOL;
+        pub fn GetClipboardData(uFormat: u32) -> *mut c_void;
+        pub fn SetClipboardData(uFormat: u32, hMem: *mut c_void) -> *mut c_void;
+        pub fn EmptyClipboard() -> BOOL;
     }
 
     #[link(name = "gdi32")]
@@ -365,6 +375,10 @@ mod windows {
             dwMinimumWorkingSetSize: usize,
             dwMaximumWorkingSetSize: usize,
         ) -> BOOL;
+        pub fn GlobalAlloc(uFlags: u32, dwBytes: usize) -> *mut c_void;
+        pub fn GlobalLock(hMem: *mut c_void) -> *mut c_void;
+        pub fn GlobalUnlock(hMem: *mut c_void) -> BOOL;
+        pub fn GlobalFree(hMem: *mut c_void) -> *mut c_void;
     }
 
     #[link(name = "dwmapi")]
@@ -476,6 +490,9 @@ mod windows {
     pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
     pub const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
     pub const DWMWCP_ROUND: u32 = 2;
+    pub const CF_UNICODETEXT: u32 = 13;
+    pub const GMEM_MOVEABLE: u32 = 0x0002;
+    pub const WM_CLIPBOARDUPDATE: u32 = 0x031D;
     #[repr(C)]
     #[derive(Clone, Copy)]
     pub struct DATA_BLOB {
@@ -492,6 +509,17 @@ mod windows {
     pub unsafe fn GetFocus() -> HWND { std::ptr::null_mut() }
     pub unsafe fn GetCurrentProcess() -> *mut std::ffi::c_void { std::ptr::null_mut() }
     pub unsafe fn SetProcessWorkingSetSize(_h: *mut std::ffi::c_void, _min: usize, _max: usize) -> i32 { 0 }
+    pub unsafe fn AddClipboardFormatListener(_hwnd: HWND) -> i32 { 0 }
+    pub unsafe fn RemoveClipboardFormatListener(_hwnd: HWND) -> i32 { 0 }
+    pub unsafe fn OpenClipboard(_hwnd: HWND) -> i32 { 0 }
+    pub unsafe fn CloseClipboard() -> i32 { 0 }
+    pub unsafe fn GetClipboardData(_format: u32) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn SetClipboardData(_format: u32, _hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn EmptyClipboard() -> i32 { 0 }
+    pub unsafe fn GlobalAlloc(_flags: u32, _bytes: usize) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn GlobalLock(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn GlobalUnlock(_h: *mut std::ffi::c_void) -> i32 { 0 }
+    pub unsafe fn GlobalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
 }
 
 pub use windows::*;

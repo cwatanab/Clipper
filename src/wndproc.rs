@@ -1,10 +1,9 @@
-use arboard::Clipboard;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub static EDIT_FOCUSED: AtomicBool = AtomicBool::new(false);
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -727,21 +726,24 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let active_hwnd = wparam as win32::HWND;
             ui::trigger_app(Mode::History, active_hwnd);
         }
-        WM_CLIPBOARD_CHANGED => {
-            let mut clipboard = Clipboard::new().unwrap();
-            if let Ok(text) = clipboard.get_text() {
-                let mut state_guard = APP_STATE.lock().unwrap();
-                if let Some(state) = &mut *state_guard {
-                    state.last_clipboard_value = text.clone();
-                    let history = std::sync::Arc::make_mut(&mut state.history);
-                    if let Some(pos) = history.iter().position(|x| x == &text) {
-                        history.remove(pos);
+        win32::WM_CLIPBOARDUPDATE => {
+            if let Some(text) = util::get_clipboard_text() {
+                if !text.is_empty() {
+                    let mut state_guard = APP_STATE.lock().unwrap();
+                    if let Some(state) = &mut *state_guard {
+                        if text != state.last_clipboard_value {
+                            state.last_clipboard_value = text.clone();
+                            let history = std::sync::Arc::make_mut(&mut state.history);
+                            if let Some(pos) = history.iter().position(|x| x == &text) {
+                                history.remove(pos);
+                            }
+                            history.push_front(text);
+                            if history.len() > 1000 {
+                                history.pop_back();
+                            }
+                            util::save_history(history);
+                        }
                     }
-                    history.push_front(text);
-                    if history.len() > 1000 {
-                        history.pop_back();
-                    }
-                    util::save_history(history);
                 }
             }
         }
