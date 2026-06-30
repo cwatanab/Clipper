@@ -87,6 +87,16 @@ mod windows {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct MSLLHOOKSTRUCT {
+        pub pt: POINT,
+        pub mouse_data: u32,
+        pub flags: u32,
+        pub time: u32,
+        pub dw_extra_info: usize,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct RECT {
         pub left: i32,
         pub top: i32,
@@ -151,6 +161,7 @@ mod windows {
     }
 
     pub const WH_KEYBOARD_LL: i32 = 13;
+    pub const WH_MOUSE_LL: i32 = 14;
     pub const WM_KEYDOWN: u32 = 0x0100;
     pub const WM_KEYUP: u32 = 0x0101;
     pub const WM_SYSKEYDOWN: u32 = 0x0104;
@@ -218,6 +229,11 @@ mod windows {
 
     pub const WM_LBUTTONDOWN: u32 = 0x0201;
     pub const WM_LBUTTONUP: u32 = 0x0202;
+    pub const WM_RBUTTONDOWN: u32 = 0x0204;
+    pub const WM_MBUTTONDOWN: u32 = 0x0207;
+    pub const WM_NCLBUTTONDOWN: u32 = 0x00A1;
+    pub const WM_NCRBUTTONDOWN: u32 = 0x00A4;
+    pub const WM_NCMBUTTONDOWN: u32 = 0x00A7;
 
     pub type HKEY = *mut c_void;
     pub const HKEY_CURRENT_USER: HKEY = 0x80000001 as HKEY;
@@ -322,6 +338,7 @@ mod windows {
         pub fn IsDialogMessageW(hDlg: HWND, lpMsg: *const MSG) -> BOOL;
         pub fn SetWindowPos(hWnd: HWND, hWndInsertAfter: HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: u32) -> BOOL;
         pub fn GetClientRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
+        pub fn GetWindowRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
         pub fn MoveWindow(hWnd: HWND, X: i32, Y: i32, nWidth: i32, nHeight: i32, bRepaint: BOOL) -> BOOL;
         pub fn GetGUIThreadInfo(idThread: u32, pgui: *mut GUITHREADINFO) -> BOOL;
         pub fn GetWindowThreadProcessId(hWnd: HWND, lpdwProcessId: *mut u32) -> u32;
@@ -491,12 +508,24 @@ mod windows {
     pub const LB_ITEMFROMPOINT: u32 = 0;
     pub const WM_LBUTTONDOWN: u32 = 0;
     pub const WM_LBUTTONUP: u32 = 0;
+    pub const WM_RBUTTONDOWN: u32 = 0;
+    pub const WM_MBUTTONDOWN: u32 = 0;
+    pub const WM_NCLBUTTONDOWN: u32 = 0;
+    pub const WM_NCRBUTTONDOWN: u32 = 0;
+    pub const WM_NCMBUTTONDOWN: u32 = 0;
     pub const WM_PAINT: u32 = 0;
     pub const WM_ERASEBKGND: u32 = 0;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct MSLLHOOKSTRUCT {
+        pub pt: RECT,
+    }
 
     pub unsafe fn GetForegroundWindow() -> HWND { 0 }
     pub unsafe fn SetForegroundWindow(_hwnd: HWND) -> i32 { 0 }
     pub unsafe fn IsWindow(_hwnd: HWND) -> i32 { 0 }
+    pub unsafe fn GetWindowRect(_hwnd: HWND, _lpRect: *mut RECT) -> i32 { 0 }
     pub unsafe fn SendInput(_c_inputs: u32, _p_inputs: *const INPUT, _cb_size: i32) -> u32 { 0 }
     pub unsafe fn IsDialogMessageW(_hDlg: HWND, _lpMsg: *const std::ffi::c_void) -> i32 { 0 }
     pub unsafe fn GetSysColorBrush(_n_index: i32) -> HBRUSH { std::ptr::null_mut() }

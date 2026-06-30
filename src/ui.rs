@@ -383,10 +383,12 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
         update_search_cue_banner();
+        crate::hook::install_mouse_hook();
     }
 }
 
 pub fn hide_window() {
+    crate::hook::uninstall_mouse_hook();
     let mut last_active = None;
     {
         let mut state_guard = lock_state();

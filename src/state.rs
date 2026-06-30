@@ -9,6 +9,7 @@ use crate::win32;
 pub const WM_TRIGGER_SNIPPET: u32 = 0x8000 + 2;
 pub const WM_TRIGGER_HISTORY: u32 = 0x8000 + 3;
 pub const WM_FILTER_COMPLETE: u32 = 0x8000 + 5;
+pub const WM_HIDE_WINDOW: u32 = 0x8000 + 6;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Mode {
@@ -37,6 +38,11 @@ pub struct AppState {
 pub struct SafeHWND(pub win32::HWND);
 unsafe impl Send for SafeHWND {}
 unsafe impl Sync for SafeHWND {}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct SafeHHOOK(pub win32::HHOOK);
+unsafe impl Send for SafeHHOOK {}
+unsafe impl Sync for SafeHHOOK {}
 
 pub type EditWndProc = unsafe extern "system" fn(win32::HWND, u32, win32::WPARAM, win32::LPARAM) -> win32::LRESULT;
 pub struct SafeWndProc(pub EditWndProc);
@@ -71,6 +77,7 @@ pub static EDIT_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static LISTBOX_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static OLD_EDIT_PROC: OnceLock<SafeWndProc> = OnceLock::new();
 pub static OLD_LISTBOX_PROC: OnceLock<SafeWndProc> = OnceLock::new();
+pub static MOUSE_HOOK: Mutex<Option<SafeHHOOK>> = Mutex::new(None);
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
 pub static MIGEMO_DICT: Mutex<Option<Arc<CompactDictionary>>> = Mutex::new(None);
 

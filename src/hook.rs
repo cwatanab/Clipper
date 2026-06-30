@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use crate::state::{SafeHWND, LAST_KEY_VK, LAST_KEY_TIME, MAIN_HWND, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{SafeHWND, SafeHHOOK, LAST_KEY_VK, LAST_KEY_TIME, MAIN_HWND, MOUSE_HOOK, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_HIDE_WINDOW};
 use crate::win32;
 
 #[cfg(target_os = "windows")]
@@ -44,3 +44,73 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: win32::WPARA
     }
     unsafe { win32::CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
+
+#[cfg(target_os = "windows")]
+pub unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: win32::WPARAM, lparam: win32::LPARAM) -> win32::LRESULT {
+    if code >= 0 {
+        let wp = wparam as u32;
+        if wp == win32::WM_LBUTTONDOWN 
+            || wp == win32::WM_RBUTTONDOWN 
+            || wp == win32::WM_MBUTTONDOWN 
+            || wp == win32::WM_NCLBUTTONDOWN 
+            || wp == win32::WM_NCRBUTTONDOWN 
+            || wp == win32::WM_NCMBUTTONDOWN 
+        {
+            let ms = unsafe { *(lparam as *const win32::MSLLHOOKSTRUCT) };
+            let pt = ms.pt;
+            
+            if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+                if *hwnd_main != std::ptr::null_mut() {
+                    let mut rect = win32::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+                    unsafe { win32::GetWindowRect(*hwnd_main, &mut rect) };
+                    
+                    let inside = pt.x >= rect.left && pt.x <= rect.right && pt.y >= rect.top && pt.y <= rect.bottom;
+                    if !inside {
+                        unsafe { win32::PostMessageW(*hwnd_main, WM_HIDE_WINDOW, 0, 0) };
+                    }
+                }
+            }
+        }
+    }
+    unsafe { win32::CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
+
+#[cfg(target_os = "windows")]
+pub fn install_mouse_hook() {
+    let mut guard = MOUSE_HOOK.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        unsafe {
+            let hinstance = win32::GetModuleHandleW(std::ptr::null());
+            let hook = win32::SetWindowsHookExW(
+                win32::WH_MOUSE_LL,
+                Some(mouse_hook_proc),
+                hinstance,
+                0,
+            );
+            if !hook.is_null() {
+                *guard = Some(SafeHHOOK(hook));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn uninstall_mouse_hook() {
+    let mut guard = MOUSE_HOOK.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(SafeHHOOK(hook)) = guard.take() {
+        unsafe {
+            win32::UnhookWindowsHookEx(hook);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub unsafe extern "system" fn mouse_hook_proc(_code: i32, _wparam: win32::WPARAM, _lparam: win32::LPARAM) -> win32::LRESULT {
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn install_mouse_hook() {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn uninstall_mouse_hook() {}

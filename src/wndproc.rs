@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub static EDIT_FOCUSED: AtomicBool = AtomicBool::new(false);
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, lock_state, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, lock_state, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_HIDE_WINDOW};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -810,6 +810,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         WM_TRIGGER_HISTORY => {
             let active_hwnd = wparam as win32::HWND;
             ui::trigger_app(Mode::History, active_hwnd);
+        }
+        WM_HIDE_WINDOW => {
+            ui::hide_window();
         }
         win32::WM_CLIPBOARDUPDATE => {
             if let Some(text) = util::get_clipboard_text() {
