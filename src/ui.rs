@@ -7,6 +7,7 @@ use crate::util;
 use crate::win32;
 
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
+static EMPTY_WSTR: &[u16] = &[0u16];
 
 pub fn update_listbox_items() {
     if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(_hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
@@ -131,7 +132,7 @@ pub fn on_select() {
                     
                     if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
                         unsafe {
-                            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
+                            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
                             win32::SetFocus(*hwnd_edit);
                         }
                     }
@@ -149,7 +150,7 @@ pub fn on_select() {
                     
                     if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
                         unsafe {
-                            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
+                            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
                             win32::SetFocus(*hwnd_edit);
                         }
                     }
@@ -318,7 +319,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 win32::SetForegroundWindow(*hwnd_main);
             }
 
-            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
+            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
             win32::SetFocus(*hwnd_edit);
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
