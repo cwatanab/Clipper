@@ -2,7 +2,7 @@ use std::thread;
 use std::time::Duration;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crate::filter;
-use crate::state::{self, Mode, SafeHWND, APP_STATE, EDIT_HWND, LISTBOX_HWND, MAIN_HWND};
+use crate::state::{self, Mode, SafeHWND, lock_state, EDIT_HWND, LISTBOX_HWND, MAIN_HWND};
 use crate::util;
 use crate::win32;
 
@@ -24,7 +24,7 @@ pub fn update_listbox_items() {
         let mut history = std::sync::Arc::new(std::collections::VecDeque::new());
 
         {
-            let mut state_guard = APP_STATE.lock().unwrap();
+            let mut state_guard = lock_state();
             if let Some(state) = &mut *state_guard {
                 state.filter_generation = generation;
                 mode = state.mode;
@@ -65,7 +65,7 @@ pub fn update_listbox_items() {
                 return; // Newer input arrived
             }
 
-            let mut state_guard = APP_STATE.lock().unwrap();
+            let mut state_guard = lock_state();
             if let Some(state) = &mut *state_guard {
                 if state.filter_generation == generation {
                     state.current_results = display_items;
@@ -108,7 +108,7 @@ pub fn on_select() {
             let mut mode = Mode::Snippet;
             
             {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 if let Some(state) = &*state_guard {
                     mode = state.mode;
                     if (cur as usize) < state.current_full_paths.len() {
@@ -120,7 +120,7 @@ pub fn on_select() {
             if mode == Mode::Snippet {
                 if target_path == ".." {
                     // Go up to parent folder
-                    let mut state_guard = APP_STATE.lock().unwrap();
+                    let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
                         if let Some(pos) = state.current_folder.rfind('/') {
                             state.current_folder = state.current_folder[..pos].to_string();
@@ -142,7 +142,7 @@ pub fn on_select() {
                 } else if target_path.starts_with("dir:") {
                     // Enter subfolder
                     let folder = target_path["dir:".len()..].to_string();
-                    let mut state_guard = APP_STATE.lock().unwrap();
+                    let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
                         state.current_folder = folder;
                     }
@@ -169,7 +169,7 @@ pub fn on_select() {
 
             let mut final_text = selected_text.clone();
             {
-                let mut state_guard = APP_STATE.lock().unwrap();
+                let mut state_guard = lock_state();
                 if let Some(state) = &mut *state_guard {
                     if state.mode == Mode::Snippet {
                         if let Some((_, template)) = state.snippets.iter().find(|(name, _)| name == &target_path) {
@@ -207,7 +207,7 @@ pub fn delete_selected_item() {
             let mut is_history = false;
             
             {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 if let Some(state) = &*state_guard {
                     is_history = state.mode == Mode::History;
                     if is_history && (cur as usize) < state.current_full_paths.len() {
@@ -217,7 +217,7 @@ pub fn delete_selected_item() {
             }
 
             if is_history && !target_text.is_empty() {
-                let mut state_guard = APP_STATE.lock().unwrap();
+                let mut state_guard = lock_state();
                 if let Some(state) = &mut *state_guard {
                     let history = std::sync::Arc::make_mut(&mut state.history);
                     if let Some(pos) = history.iter().position(|x| x == &target_text) {
@@ -247,7 +247,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
     let is_dark = crate::darkmode::is_dark_mode();
 
     {
-        let mut state_guard = APP_STATE.lock().unwrap();
+        let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
             state.mode = mode;
             state.is_dark = is_dark;
@@ -306,7 +306,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         unsafe {
             win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
 
-            let mut state_guard = APP_STATE.lock().unwrap();
+            let mut state_guard = lock_state();
             if let Some(state) = &mut *state_guard {
                 let generation = FILTER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
                 state.filter_generation = generation;
@@ -389,7 +389,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
 pub fn hide_window() {
     let mut last_active = None;
     {
-        let mut state_guard = APP_STATE.lock().unwrap();
+        let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
             state.visible = false;
             // Clear search result lists to free up memory immediately
@@ -517,7 +517,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
 }
 
 pub fn update_search_cue_banner() {
-    if let (Some(SafeHWND(hwnd_edit)), Some(state_guard)) = (EDIT_HWND.get(), APP_STATE.lock().unwrap().as_ref()) {
+    if let (Some(SafeHWND(hwnd_edit)), Some(state_guard)) = (EDIT_HWND.get(), lock_state().as_ref()) {
         let cue_holder;
         let cue_text = match state_guard.mode {
             Mode::Snippet => {

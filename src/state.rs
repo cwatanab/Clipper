@@ -57,6 +57,12 @@ pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
+/// Poison-safe lock helper for APP_STATE.
+/// Recovers from poisoned mutex instead of panicking.
+pub fn lock_state() -> std::sync::MutexGuard<'static, Option<AppState>> {
+    APP_STATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 use crate::config::Config;
 pub static CONFIG: OnceLock<Config> = OnceLock::new();
 
@@ -69,7 +75,7 @@ use rustmigemo::migemo::compact_dictionary::CompactDictionary;
 pub static MIGEMO_DICT: Mutex<Option<Arc<CompactDictionary>>> = Mutex::new(None);
 
 pub fn get_migemo_dict() -> Option<Arc<CompactDictionary>> {
-    let mut guard = MIGEMO_DICT.lock().unwrap();
+    let mut guard = MIGEMO_DICT.lock().unwrap_or_else(|e| e.into_inner());
     if guard.is_none() {
         if let Some(dict) = crate::dict::load() {
             *guard = Some(Arc::new(dict));
@@ -79,7 +85,7 @@ pub fn get_migemo_dict() -> Option<Arc<CompactDictionary>> {
 }
 
 pub fn clear_migemo_dict() {
-    let mut guard = MIGEMO_DICT.lock().unwrap();
+    let mut guard = MIGEMO_DICT.lock().unwrap_or_else(|e| e.into_inner());
     *guard = None;
 }
 

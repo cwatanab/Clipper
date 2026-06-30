@@ -12,7 +12,7 @@ mod win32;
 mod wndproc;
 
 use crate::hook::keyboard_hook_proc;
-use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND};
+use crate::state::{Mode, SafeHWND, lock_state, MAIN_HWND};
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,9 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     darkmode::apply();
 
+    let _mutex_handle;
     {
         let name = util::to_wstring("Global\\ClipperAppMutex");
-        unsafe { win32::CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
+        _mutex_handle = unsafe { win32::CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
         if unsafe { win32::GetLastError() } == win32::ERROR_ALREADY_EXISTS {
             return Ok(());
         }
@@ -50,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app_state.last_clipboard_value = text;
     }
 
-    *APP_STATE.lock().unwrap() = Some(app_state);
+    *lock_state() = Some(app_state);
 
     unsafe {
         let hinstance = win32::GetModuleHandleW(std::ptr::null());
@@ -132,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut msg = std::mem::zeroed();
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             let is_visible = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or(false, |s| s.visible)
             };
 

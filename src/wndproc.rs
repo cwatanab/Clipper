@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub static EDIT_FOCUSED: AtomicBool = AtomicBool::new(false);
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, lock_state, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -58,22 +58,22 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
 
     unsafe {
         // Release old brushes
-        if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap().take() {
+        if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()).take() {
             win32::DeleteObject(brush);
         }
-        if let Some(SafeHBRUSH(brush)) = BRUSH_CTRL.lock().unwrap().take() {
+        if let Some(SafeHBRUSH(brush)) = BRUSH_CTRL.lock().unwrap_or_else(|e| e.into_inner()).take() {
             win32::DeleteObject(brush);
         }
-        if let Some(SafeHBRUSH(brush)) = BRUSH_EDIT.lock().unwrap().take() {
+        if let Some(SafeHBRUSH(brush)) = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
             win32::DeleteObject(brush);
         }
-        if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().take() {
+        if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).take() {
             win32::DeleteObject(brush);
         }
-        if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().take() {
+        if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap_or_else(|e| e.into_inner()).take() {
             win32::DeleteObject(brush);
         }
-        if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap().take() {
+        if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()).take() {
             win32::DeleteObject(brush);
         }
 
@@ -85,22 +85,22 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
         let brush_border = win32::CreateSolidBrush(colors.border_color);
         let brush_sel_bg = win32::CreateSolidBrush(colors.sel_bg);
 
-        *BRUSH_BG.lock().unwrap() = Some(SafeHBRUSH(brush_bg));
-        *BRUSH_CTRL.lock().unwrap() = Some(SafeHBRUSH(brush_ctrl));
-        *BRUSH_EDIT.lock().unwrap() = Some(SafeHBRUSH(brush_edit));
-        *BRUSH_LISTBOX.lock().unwrap() = Some(SafeHBRUSH(brush_listbox));
-        *BRUSH_BORDER.lock().unwrap() = Some(SafeHBRUSH(brush_border));
-        *BRUSH_SEL_BG.lock().unwrap() = Some(SafeHBRUSH(brush_sel_bg));
+        *BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_bg));
+        *BRUSH_CTRL.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_ctrl));
+        *BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_edit));
+        *BRUSH_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_listbox));
+        *BRUSH_BORDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_border));
+        *BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_sel_bg));
 
         // Initialize fonts if not done
-        if FONT_EDIT.lock().unwrap().is_none() {
+        if FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             let config = state::CONFIG.get().cloned().unwrap_or_default();
             let font_edit = util::create_ui_font(&config.font_name, -16, 400);
             let font_listbox = util::create_ui_font(&config.font_name, -14, 400);
             let font_listbox_bold = util::create_ui_font(&config.font_name, -14, 700);
-            *FONT_EDIT.lock().unwrap() = Some(SafeHFONT(font_edit));
-            *FONT_LISTBOX.lock().unwrap() = Some(SafeHFONT(font_listbox));
-            *FONT_LISTBOX_BOLD.lock().unwrap() = Some(SafeHFONT(font_listbox_bold));
+            *FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHFONT(font_edit));
+            *FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHFONT(font_listbox));
+            *FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHFONT(font_listbox_bold));
 
             let font_name = util::to_wstring("Segoe MDL2 Assets");
             let font_icons_16 = win32::CreateFontW(
@@ -137,10 +137,10 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
             win32::SetWindowTheme(*hwnd_edit, empty_str.as_ptr(), empty_str.as_ptr());
             darkmode::apply_to_control(*hwnd_listbox, is_dark);
 
-            if let Some(SafeHFONT(font)) = FONT_EDIT.lock().unwrap().as_ref() {
+            if let Some(SafeHFONT(font)) = FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 win32::SendMessageW(*hwnd_edit, win32::WM_SETFONT, *font as win32::WPARAM, 1);
             }
-            if let Some(SafeHFONT(font)) = FONT_LISTBOX.lock().unwrap().as_ref() {
+            if let Some(SafeHFONT(font)) = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 win32::SendMessageW(*hwnd_listbox, win32::WM_SETFONT, *font as win32::WPARAM, 1);
             }
 
@@ -162,7 +162,7 @@ pub fn update_top_index() {
     if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
         unsafe {
             let top_index = win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize;
-            let mut state_guard = APP_STATE.lock().unwrap();
+            let mut state_guard = lock_state();
             if let Some(state) = &mut *state_guard {
                 state.top_index = top_index;
             }
@@ -184,11 +184,11 @@ pub unsafe extern "system" fn edit_subclass_proc(hwnd: win32::HWND, msg: u32, wp
                 let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
                 if len == 0 {
                     let has_parent = {
-                        let state_guard = APP_STATE.lock().unwrap();
+                        let state_guard = lock_state();
                         state_guard.as_ref().map_or(false, |s| !s.current_folder.is_empty())
                     };
                     if has_parent {
-                        let mut state_guard = APP_STATE.lock().unwrap();
+                        let mut state_guard = lock_state();
                         if let Some(state) = &mut *state_guard {
                             if let Some(pos) = state.current_folder.rfind('/') {
                                 state.current_folder = state.current_folder[..pos].to_string();
@@ -331,7 +331,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Apply theme resources right after controls are initialized
             let is_dark = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or(false, |s| s.is_dark)
             };
             update_theme_resources(hwnd, is_dark);
@@ -407,7 +407,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                         if cur != win32::LB_ERR {
                             let mut is_folder = false;
                             {
-                                let state_guard = APP_STATE.lock().unwrap();
+                                let state_guard = lock_state();
                                 if let Some(state) = &*state_guard {
                                     if state.mode == Mode::Snippet && (cur as usize) < state.current_full_paths.len() {
                                         let target = &state.current_full_paths[cur as usize];
@@ -442,7 +442,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         state::WM_FILTER_COMPLETE => {
             let generation = wparam as u32;
             let display_items = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().and_then(|state| {
                     if state.filter_generation == generation {
                         Some(state.current_results.clone())
@@ -474,7 +474,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         win32::WM_CTLCOLOREDIT => {
             let hdc = wparam as win32::HDC;
             let is_dark = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or(false, |s| s.is_dark)
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -483,14 +483,14 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 win32::SetTextColor(hdc, colors.text_color);
                 win32::SetBkColor(hdc, colors.edit_bg);
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_EDIT.lock().unwrap().as_ref() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 return *brush as win32::LRESULT;
             }
         }
         win32::WM_CTLCOLORLISTBOX => {
             let hdc = wparam as win32::HDC;
             let is_dark = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or(false, |s| s.is_dark)
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -499,7 +499,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 win32::SetTextColor(hdc, colors.text_color);
                 win32::SetBkColor(hdc, colors.window_bg);
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().as_ref() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 return *brush as win32::LRESULT;
             }
         }
@@ -522,7 +522,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let selected = (dis.item_state & win32::ODS_SELECTED) != 0;
 
             let (is_dark, _mode, is_folder) = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or((false, Mode::Snippet, false), |s| {
                     let is_folder = if s.mode == Mode::Snippet && (dis.item_id as usize) < s.current_full_paths.len() {
                         let path = &s.current_full_paths[dis.item_id as usize];
@@ -555,13 +555,13 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Draw item background using cached brushes
             let (bg_brush, delete_brush) = if selected {
-                if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap().as_ref() {
+                if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                     (*brush, false)
                 } else {
                     (unsafe { win32::CreateSolidBrush(bg_color) }, true)
                 }
             } else {
-                if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().as_ref() {
+                if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                     (*brush, false)
                 } else {
                     (unsafe { win32::CreateSolidBrush(bg_color) }, true)
@@ -625,9 +625,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Apply normal/bold font based on selection
             let font_to_use = if selected {
-                FONT_LISTBOX_BOLD.lock().unwrap()
+                FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner())
             } else {
-                FONT_LISTBOX.lock().unwrap()
+                FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner())
             };
             if let Some(SafeHFONT(font)) = font_to_use.as_ref() {
                 unsafe { win32::SelectObject(hdc, *font as win32::HGDIOBJ) };
@@ -666,7 +666,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let hdc = unsafe { win32::BeginPaint(hwnd, &mut ps) };
 
             let is_dark = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or(false, |s| s.is_dark)
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -725,7 +725,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Draw 1px clean border of the main window itself
             let mut delete_border = false;
-            let border_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().as_ref() {
+            let border_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 *brush
             } else {
                 delete_border = true;
@@ -743,7 +743,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             // Erase with the correct theme color
             let hdc = wparam as win32::HDC;
             let is_dark = {
-                let state_guard = APP_STATE.lock().unwrap();
+                let state_guard = lock_state();
                 state_guard.as_ref().map_or(false, |s| s.is_dark)
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -752,7 +752,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             unsafe { win32::GetClientRect(hwnd, &mut rc) };
 
             let mut delete_bg = false;
-            let bg_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap().as_ref() {
+            let bg_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 *brush
             } else {
                 delete_bg = true;
@@ -769,7 +769,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             state::log_debug(&format!("WM_ACTIVATE: active_state={}", active_state));
             if active_state == win32::WA_INACTIVE {
                 let is_visible = {
-                    let state_guard = APP_STATE.lock().unwrap();
+                    let state_guard = lock_state();
                     state_guard.as_ref().map_or(false, |s| s.visible)
                 };
                 if is_visible {
@@ -787,7 +787,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             state::log_debug(&format!("WM_ACTIVATEAPP: wparam={}", wparam));
             if wparam == 0 { // Being deactivated
                 let is_visible = {
-                    let state_guard = APP_STATE.lock().unwrap();
+                    let state_guard = lock_state();
                     state_guard.as_ref().map_or(false, |s| s.visible)
                 };
                 if is_visible {
@@ -814,59 +814,66 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         win32::WM_CLIPBOARDUPDATE => {
             if let Some(text) = util::get_clipboard_text() {
                 if !text.is_empty() {
-                    let mut state_guard = APP_STATE.lock().unwrap();
-                    if let Some(state) = &mut *state_guard {
-                        if text != state.last_clipboard_value {
-                            state.last_clipboard_value = text.clone();
-                            let history = std::sync::Arc::make_mut(&mut state.history);
-                            if let Some(pos) = history.iter().position(|x| x == &text) {
-                                history.remove(pos);
+                    let history_to_save = {
+                        let mut state_guard = lock_state();
+                        if let Some(state) = &mut *state_guard {
+                            if text != state.last_clipboard_value {
+                                state.last_clipboard_value = text.clone();
+                                let history = std::sync::Arc::make_mut(&mut state.history);
+                                if let Some(pos) = history.iter().position(|x| x == &text) {
+                                    history.remove(pos);
+                                }
+                                history.push_front(text);
+                                if history.len() > 1000 {
+                                    history.pop_back();
+                                }
+                                Some(std::sync::Arc::clone(&state.history))
+                            } else {
+                                None
                             }
-                            history.push_front(text);
-                            if history.len() > 1000 {
-                                history.pop_back();
-                            }
-                            let history_arc = std::sync::Arc::clone(&state.history);
-                            std::thread::spawn(move || {
-                                util::save_history(&history_arc);
-                            });
+                        } else {
+                            None
                         }
+                    }; // Lock dropped here
+                    if let Some(history_arc) = history_to_save {
+                        std::thread::spawn(move || {
+                            util::save_history(&history_arc);
+                        });
                     }
                 }
             }
         }
         win32::WM_DESTROY => {
-            // Clean up font objects
-            if let Some(SafeHFONT(font)) = FONT_EDIT.lock().unwrap().take() {
+            // Clean up font objects (Mutex-backed fonts use .take() to clear)
+            if let Some(SafeHFONT(font)) = FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(font) };
             }
-            if let Some(SafeHFONT(font)) = FONT_LISTBOX.lock().unwrap().take() {
+            if let Some(SafeHFONT(font)) = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(font) };
             }
-            if let Some(SafeHFONT(font)) = state::FONT_ICONS_16.get() {
-                unsafe { win32::DeleteObject(*font) };
+            if let Some(SafeHFONT(font)) = FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                unsafe { win32::DeleteObject(font) };
             }
-            if let Some(SafeHFONT(font)) = state::FONT_ICONS_18.get() {
-                unsafe { win32::DeleteObject(*font) };
-            }
+            // OnceLock fonts (FONT_ICONS_16/18) cannot be taken/cleared.
+            // OS reclaims all GDI handles on process exit, so skipping explicit deletion is safe.
 
             // Clean up brush objects
-            if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap().take() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(brush) };
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_CTRL.lock().unwrap().take() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_CTRL.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(brush) };
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_EDIT.lock().unwrap().take() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(brush) };
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().take() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(brush) };
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().take() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(brush) };
             }
-            if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap().take() {
+            if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(brush) };
             }
             unsafe { win32::PostQuitMessage(0) };
