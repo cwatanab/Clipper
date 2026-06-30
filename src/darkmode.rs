@@ -83,9 +83,9 @@ pub fn apply_to_window(hwnd: win32::HWND, dark: bool) {
         }
 
         let theme = if dark {
-            util::to_wstring("DarkMode_Explorer")
+            util::wstr_explorer_dark()
         } else {
-            util::to_wstring("Explorer")
+            util::wstr_explorer()
         };
         win32::SetWindowTheme(hwnd, theme.as_ptr(), std::ptr::null());
     }
@@ -94,9 +94,9 @@ pub fn apply_to_window(hwnd: win32::HWND, dark: bool) {
 pub fn apply_to_control(hwnd: win32::HWND, dark: bool) {
     unsafe {
         let theme = if dark {
-            util::to_wstring("DarkMode_Explorer")
+            util::wstr_explorer_dark()
         } else {
-            util::to_wstring("Explorer")
+            util::wstr_explorer()
         };
         win32::SetWindowTheme(hwnd, theme.as_ptr(), std::ptr::null());
     }

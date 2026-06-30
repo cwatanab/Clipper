@@ -13,7 +13,7 @@ use crate::win32;
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
 
 pub fn update_listbox_items(_dict_opt: Option<&CompactDictionary>) {
-    if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
+    if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(_hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
         let len = unsafe { win32::GetWindowTextLengthW(*hwnd_edit) } as usize;
         let mut buf = vec![0u16; len + 1];
         unsafe { win32::GetWindowTextW(*hwnd_edit, buf.as_mut_ptr(), (len + 1) as i32) };
@@ -23,8 +23,8 @@ pub fn update_listbox_items(_dict_opt: Option<&CompactDictionary>) {
 
         let mut mode = Mode::Snippet;
         let mut current_folder = String::new();
-        let mut snippets = Vec::new();
-        let mut history = std::collections::VecDeque::new();
+        let mut snippets = std::sync::Arc::new(Vec::new());
+        let mut history = std::sync::Arc::new(std::collections::VecDeque::new());
 
         {
             let mut state_guard = APP_STATE.lock().unwrap();
@@ -32,8 +32,8 @@ pub fn update_listbox_items(_dict_opt: Option<&CompactDictionary>) {
                 state.filter_generation = generation;
                 mode = state.mode;
                 current_folder = state.current_folder.clone();
-                snippets = state.snippets.clone();
-                history = state.history.clone();
+                snippets = std::sync::Arc::clone(&state.snippets);
+                history = std::sync::Arc::clone(&state.history);
             }
         }
 
@@ -140,6 +140,7 @@ pub fn on_select() {
                         }
                     }
                     update_listbox_items(MIGEMO_DICT.get());
+                    update_search_cue_banner();
                     return;
                 } else if target_path.starts_with("dir:") {
                     // Enter subfolder
@@ -157,6 +158,7 @@ pub fn on_select() {
                         }
                     }
                     update_listbox_items(MIGEMO_DICT.get());
+                    update_search_cue_banner();
                     return;
                 }
             }
@@ -205,6 +207,48 @@ pub fn on_select() {
     }
 }
 
+pub fn delete_selected_item() {
+    if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+        let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
+        if cur != win32::LB_ERR {
+            let mut target_text = String::new();
+            let mut is_history = false;
+            
+            {
+                let state_guard = APP_STATE.lock().unwrap();
+                if let Some(state) = &*state_guard {
+                    is_history = state.mode == Mode::History;
+                    if is_history && (cur as usize) < state.current_full_paths.len() {
+                        target_text = state.current_full_paths[cur as usize].clone();
+                    }
+                }
+            }
+
+            if is_history && !target_text.is_empty() {
+                let mut state_guard = APP_STATE.lock().unwrap();
+                if let Some(state) = &mut *state_guard {
+                    let history = std::sync::Arc::make_mut(&mut state.history);
+                    if let Some(pos) = history.iter().position(|x| x == &target_text) {
+                        history.remove(pos);
+                        util::save_history(history);
+                    }
+                }
+                std::mem::drop(state_guard);
+                
+                update_listbox_items(MIGEMO_DICT.get());
+                
+                // Keep the selection at the same position or move it up if we deleted the last item
+                let count = unsafe { win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0) } as isize;
+                if count > 0 {
+                    let next_sel = std::cmp::min(cur, count - 1);
+                    unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, next_sel as usize, 0) };
+                }
+                crate::wndproc::update_top_index();
+            }
+        }
+    }
+}
+
 pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
     state::log_debug(&format!("trigger_app called. Mode={:?}, active_hwnd={:?}", mode, active_hwnd));
 
@@ -216,7 +260,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             state.mode = mode;
             state.is_dark = is_dark;
             if mode == Mode::Snippet {
-                state.snippets = util::load_snippets();
+                state.snippets = std::sync::Arc::new(util::load_snippets());
             }
             state.visible = true;
 
@@ -238,7 +282,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
 
         let monitor_w = unsafe { win32::GetSystemMetrics(0) };
         let monitor_h = unsafe { win32::GetSystemMetrics(1) };
-        let w = 350;
+        let w = 450; // Increased width slightly as requested
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
         let h = (max_rows as i32) * 28 + 38;
 
@@ -252,6 +296,12 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 unsafe { win32::ClientToScreen(gui.hwndCaret, &mut pt) };
                 x = pt.x;
                 y = pt.y + 4;
+            } else {
+                // Fallback: use mouse cursor position when caret cannot be retrieved (e.g. in terminals)
+                let mut pt = win32::POINT { x: 0, y: 0 };
+                unsafe { win32::GetCursorPos(&mut pt) };
+                x = pt.x;
+                y = pt.y + 10;
             }
         }
 
@@ -279,6 +329,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
         update_listbox_items(MIGEMO_DICT.get());
+        update_search_cue_banner();
     }
 }
 
@@ -387,5 +438,24 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         let _ = std::process::Command::new("explorer").arg(path).spawn();
     } else if cmd == 1003 {
         unsafe { win32::PostQuitMessage(0) };
+    }
+}
+
+pub fn update_search_cue_banner() {
+    if let (Some(SafeHWND(hwnd_edit)), Some(state_guard)) = (EDIT_HWND.get(), APP_STATE.lock().unwrap().as_ref()) {
+        let cue_text = match state_guard.mode {
+            Mode::Snippet => {
+                if state_guard.current_folder.is_empty() {
+                    "スニペット (Root) - 検索 (Migemo)...".to_string()
+                } else {
+                    format!("スニペット [{}] - 検索 (Migemo)...", state_guard.current_folder)
+                }
+            }
+            Mode::History => "クリップボード履歴 - 検索 (Migemo)...".to_string(),
+        };
+        let cue_w = util::to_wstring(&cue_text);
+        unsafe {
+            win32::SendMessageW(*hwnd_edit, 0x1501 /* EM_SETCUEBANNER */, 1, cue_w.as_ptr() as win32::LPARAM);
+        }
     }
 }

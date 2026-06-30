@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use regex::{Regex, RegexBuilder};
+use regex::RegexBuilder;
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
 use rustmigemo::migemo::query::query;
 use rustmigemo::migemo::regex_generator::RegexOperator;
@@ -24,14 +24,14 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
 
                 // Parent folder navigation
                 if !cur_folder.is_empty() {
-                    display_items.push("📁 ..".to_string());
+                    display_items.push(format!("📁 .. / {}", cur_folder));
                     full_paths.push("..".to_string());
                 }
 
                 let mut folder_names = std::collections::HashSet::new();
                 let mut local_snippets = Vec::new();
 
-                for (name, _) in &state.snippets {
+                for (name, _) in state.snippets.iter() {
                     if cur_folder.is_empty() {
                         if let Some(pos) = name.find('/') {
                             let folder = &name[..pos];
@@ -120,22 +120,36 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
         }
     }).collect();
 
-    let query_lower = query_text.to_lowercase();
-    let hiragana_lower = hiragana.to_lowercase();
-    let katakana_lower = katakana.to_lowercase();
+    // Pre-compile case-insensitive regex for the raw query to avoid per-item to_lowercase allocations
+    let query_re = RegexBuilder::new(&regex::escape(query_text))
+        .case_insensitive(true)
+        .build()
+        .ok();
+
+    // Pre-compile case-insensitive regex for hiragana/katakana search
+    let hiragana_re = if !hiragana.is_empty() && hiragana != query_text {
+        let pattern = format!("{}|{}", regex::escape(&hiragana), regex::escape(&katakana));
+        RegexBuilder::new(&pattern)
+            .case_insensitive(true)
+            .build()
+            .ok()
+    } else {
+        None
+    };
 
     let matches_text = |text: &str| -> bool {
-        let text_lower = text.to_lowercase();
         if let Some(ref re) = re_opt {
-            if re.is_match(&text_lower) || re.is_match(text) {
+            if re.is_match(text) {
                 return true;
             }
         }
-        if text_lower.contains(&query_lower) {
-            return true;
+        if let Some(ref re) = query_re {
+            if re.is_match(text) {
+                return true;
+            }
         }
-        if !hiragana_lower.is_empty() && hiragana_lower != query_lower {
-            if text_lower.contains(&hiragana_lower) || text_lower.contains(&katakana_lower) {
+        if let Some(ref re) = hiragana_re {
+            if re.is_match(text) {
                 return true;
             }
         }
@@ -151,7 +165,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             let mut folder_names = std::collections::HashSet::new();
             let mut local_snippets = Vec::new();
 
-            for (name, content) in &state.snippets {
+            for (name, content) in state.snippets.iter() {
                 if cur_folder.is_empty() {
                     if let Some(pos) = name.find('/') {
                         let folder = &name[..pos];
@@ -174,7 +188,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             }
 
             if !cur_folder.is_empty() {
-                display_items.push("📁 ..".to_string());
+                display_items.push(format!("📁 .. / {}", cur_folder));
                 full_paths.push("..".to_string());
             }
 
@@ -219,7 +233,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
         Mode::History => {
             let mut matches_display = Vec::new();
             let mut matches_full = Vec::new();
-            for text in &state.history {
+            for text in state.history.iter() {
                 if matches_text(text) {
                     let clean = text.replace("\r\n", " ")
                                     .replace('\n', " ")

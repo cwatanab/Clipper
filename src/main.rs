@@ -40,8 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut app_state = state::AppState {
-        history: util::load_history(),
-        snippets: util::load_snippets(),
+        history: std::sync::Arc::new(util::load_history()),
+        snippets: std::sync::Arc::new(util::load_snippets()),
         mode: Mode::Snippet,
         visible: false,
         current_results: Vec::new(),

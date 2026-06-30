@@ -75,20 +75,99 @@ fn load_snippets_recursive(dir: &PathBuf, prefix: &str, out: &mut Vec<(String, S
     }
 }
 
+fn encrypt_data(data: &[u8]) -> Option<Vec<u8>> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let data_in = win32::DATA_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        };
+        let mut data_out = std::mem::zeroed::<win32::DATA_BLOB>();
+        let ret = win32::CryptProtectData(
+            &data_in,
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            &mut data_out,
+        );
+        if ret != 0 {
+            let slice = std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize);
+            let res = slice.to_vec();
+            win32::LocalFree(data_out.pbData as *mut std::ffi::c_void);
+            Some(res)
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Some(data.to_vec())
+    }
+}
+
+fn decrypt_data(data: &[u8]) -> Option<Vec<u8>> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let data_in = win32::DATA_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        };
+        let mut data_out = std::mem::zeroed::<win32::DATA_BLOB>();
+        let ret = win32::CryptUnprotectData(
+            &data_in,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+            &mut data_out,
+        );
+        if ret != 0 {
+            let slice = std::slice::from_raw_parts(data_out.pbData, data_out.cbData as usize);
+            let res = slice.to_vec();
+            win32::LocalFree(data_out.pbData as *mut std::ffi::c_void);
+            Some(res)
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Some(data.to_vec())
+    }
+}
+
 pub fn load_history() -> VecDeque<String> {
     let app_dir = get_app_dir();
-    let history_file = app_dir.join("history.json");
-    if history_file.exists() {
-        if let Ok(content) = fs::read_to_string(history_file) {
+    let history_dat = app_dir.join("history.dat");
+    let history_json = app_dir.join("history.json");
+
+    // Migration logic: if history.json exists and history.dat doesn't, encrypt and migrate it
+    if history_json.exists() && !history_dat.exists() {
+        if let Ok(content) = fs::read_to_string(&history_json) {
             if let Ok(history) = serde_json::from_str::<VecDeque<String>>(&content) {
-                let mut seen = std::collections::HashSet::new();
-                let mut unique_history = VecDeque::new();
-                for item in history {
-                    if seen.insert(item.clone()) {
-                        unique_history.push_back(item);
+                save_history(&history);
+                let _ = fs::remove_file(&history_json);
+                return history;
+            }
+        }
+    }
+
+    if history_dat.exists() {
+        if let Ok(encrypted_content) = fs::read(&history_dat) {
+            if let Some(decrypted_content) = decrypt_data(&encrypted_content) {
+                if let Ok(history) = serde_json::from_slice::<VecDeque<String>>(&decrypted_content) {
+                    let mut seen = std::collections::HashSet::new();
+                    let mut unique_history = VecDeque::new();
+                    for item in history {
+                        if seen.insert(item.clone()) {
+                            unique_history.push_back(item);
+                        }
                     }
+                    return unique_history;
                 }
-                return unique_history;
             }
         }
     }
@@ -97,10 +176,12 @@ pub fn load_history() -> VecDeque<String> {
 
 pub fn save_history(history: &VecDeque<String>) {
     let app_dir = get_app_dir();
-    let history_file = app_dir.join("history.json");
-    if let Ok(content) = serde_json::to_string_pretty(history) {
-        let _ = fs::create_dir_all(&app_dir);
-        let _ = fs::write(history_file, content);
+    let history_dat = app_dir.join("history.dat");
+    if let Ok(content) = serde_json::to_vec(history) {
+        if let Some(encrypted) = encrypt_data(&content) {
+            let _ = fs::create_dir_all(&app_dir);
+            let _ = fs::write(history_dat, encrypted);
+        }
     }
 }
 
@@ -119,3 +200,21 @@ pub fn render_template(template_str: &str, clipboard_text: &str) -> String {
         template_str.to_string()
     }
 }
+
+use std::sync::OnceLock;
+
+macro_rules! define_wstring_cache {
+    ($name:ident, $val:expr) => {
+        pub fn $name() -> &'static [u16] {
+            static CACHE: OnceLock<Vec<u16>> = OnceLock::new();
+            CACHE.get_or_init(|| to_wstring($val))
+        }
+    };
+}
+
+define_wstring_cache!(wstr_edit, "EDIT");
+define_wstring_cache!(wstr_listbox, "LISTBOX");
+define_wstring_cache!(wstr_arrow, ">");
+define_wstring_cache!(wstr_cue, "検索 (Migemo)...");
+define_wstring_cache!(wstr_explorer_dark, "DarkMode_Explorer");
+define_wstring_cache!(wstr_explorer, "Explorer");

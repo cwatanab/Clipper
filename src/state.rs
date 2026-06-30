@@ -19,9 +19,11 @@ pub enum Mode {
     History,
 }
 
+use std::sync::Arc;
+
 pub struct AppState {
-    pub history: VecDeque<String>,
-    pub snippets: Vec<(String, String)>,
+    pub history: Arc<VecDeque<String>>,
+    pub snippets: Arc<Vec<(String, String)>>,
     pub mode: Mode,
     pub visible: bool,
     pub current_results: Vec<String>,
@@ -73,10 +75,13 @@ pub static BRUSH_BG: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(N
 pub static BRUSH_CTRL: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
 pub static BRUSH_EDIT: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
 pub static BRUSH_LISTBOX: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
+pub static BRUSH_BORDER: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
+pub static BRUSH_SEL_BG: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
 pub static FONT_EDIT: Lazy<Mutex<Option<SafeHFONT>>> = Lazy::new(|| Mutex::new(None));
 pub static FONT_LISTBOX: Lazy<Mutex<Option<SafeHFONT>>> = Lazy::new(|| Mutex::new(None));
 pub static FONT_LISTBOX_BOLD: Lazy<Mutex<Option<SafeHFONT>>> = Lazy::new(|| Mutex::new(None));
 
+#[allow(dead_code)]
 pub static LOG_QUEUE: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
 
 pub fn log_debug(_msg: &str) {}

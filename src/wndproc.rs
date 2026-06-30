@@ -1,7 +1,7 @@
 use arboard::Clipboard;
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -24,35 +24,28 @@ struct ThemeColors {
     text_color: u32,
     sel_bg: u32,
     sel_text: u32,
-    num_color: u32,
     border_color: u32,
-    sep_color: u32,
 }
 
 const LIGHT_THEME: ThemeColors = ThemeColors {
     window_bg: 0x00F5F5F7,    // macOS/Win11 light gray (RGB: 245, 245, 247)
     edit_bg: 0x00FFFFFF,      // Pure white for edit search box
-    text_color: 0x001C1C1E,   // Soft dark gray (RGB: 28, 28, 30)
+    text_color: 0x00000000,   // Pure black text (RGB: 0, 0, 0)
     sel_bg: 0x00E67A00,       // Accent Blue (RGB: 0, 122, 230)
     sel_text: 0x00FFFFFF,     // White text for selection
-    num_color: 0x009F9F9F,    // Soft gray for candidate numbers
     border_color: 0x00CCCCCC, // Clean gray border (RGB: 204, 204, 204)
-    sep_color: 0x00E5E5EA,    // Elegant thin separator (RGB: 229, 229, 234)
 };
 
 const DARK_THEME: ThemeColors = ThemeColors {
     window_bg: 0x001C1C1E,    // macOS/Win11 dark gray (RGB: 28, 28, 30)
     edit_bg: 0x002C2C2E,      // Darker gray search box (RGB: 44, 44, 46)
-    text_color: 0x00F2F2F7,   // Off-white text (RGB: 242, 242, 247)
+    text_color: 0x00FFFFFF,   // Pure white text (RGB: 255, 255, 255) - slightly brightened
     sel_bg: 0x00FF9F0A,       // Vibrant Blue (RGB: 10, 159, 255)
     sel_text: 0x00FFFFFF,     // White text for selection
-    num_color: 0x008E8E93,    // Soft medium gray (RGB: 142, 142, 147)
     border_color: 0x00444446, // Dark clean border (RGB: 68, 68, 70)
-    sep_color: 0x002C2C2E,    // Elegant dark separator
 };
 
 const IME_ITEM_HEIGHT: u32 = 28;  // Height for listbox candidates (generous padding)
-const IME_NUM_COL_WIDTH: i32 = 28; // Candidate number column width
 
 // Update theme colors, brushes, fonts and apply to controls
 pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
@@ -72,17 +65,27 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
         if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().take() {
             win32::DeleteObject(brush);
         }
+        if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().take() {
+            win32::DeleteObject(brush);
+        }
+        if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap().take() {
+            win32::DeleteObject(brush);
+        }
 
         // Create new brushes
         let brush_bg = win32::CreateSolidBrush(colors.window_bg);
         let brush_ctrl = win32::CreateSolidBrush(colors.edit_bg);
         let brush_edit = win32::CreateSolidBrush(colors.edit_bg);
         let brush_listbox = win32::CreateSolidBrush(colors.window_bg);
+        let brush_border = win32::CreateSolidBrush(colors.border_color);
+        let brush_sel_bg = win32::CreateSolidBrush(colors.sel_bg);
 
         *BRUSH_BG.lock().unwrap() = Some(SafeHBRUSH(brush_bg));
         *BRUSH_CTRL.lock().unwrap() = Some(SafeHBRUSH(brush_ctrl));
         *BRUSH_EDIT.lock().unwrap() = Some(SafeHBRUSH(brush_edit));
         *BRUSH_LISTBOX.lock().unwrap() = Some(SafeHBRUSH(brush_listbox));
+        *BRUSH_BORDER.lock().unwrap() = Some(SafeHBRUSH(brush_border));
+        *BRUSH_SEL_BG.lock().unwrap() = Some(SafeHBRUSH(brush_sel_bg));
 
         // Initialize fonts if not done
         if FONT_EDIT.lock().unwrap().is_none() {
@@ -113,8 +116,7 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
             win32::SendMessageW(*hwnd_edit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, (6 | (6 << 16)) as win32::LPARAM);
 
             // Set text placeholder (Cue Banner)
-            let cue_text = util::to_wstring("検索 (Migemo)...");
-            win32::SendMessageW(*hwnd_edit, win32::EM_SETCUEBANNER, 1, cue_text.as_ptr() as win32::LPARAM);
+            win32::SendMessageW(*hwnd_edit, win32::EM_SETCUEBANNER, 1, util::wstr_cue().as_ptr() as win32::LPARAM);
 
             win32::InvalidateRect(*hwnd_edit, std::ptr::null(), 1);
             win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
@@ -145,6 +147,7 @@ pub unsafe extern "system" fn edit_subclass_proc(hwnd: win32::HWND, msg: u32, wp
             40 => { ui::move_listbox_selection(1); return 0; }
             13 => { ui::on_select(); return 0; }
             27 => { ui::hide_window(); return 0; }
+            46 => { ui::delete_selected_item(); return 0; }
             8 => { // Backspace
                 let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
                 if len == 0 {
@@ -199,7 +202,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let hwnd_edit = unsafe {
                 win32::CreateWindowExW(
                     0,
-                    util::to_wstring("EDIT").as_ptr(),
+                    util::wstr_edit().as_ptr(),
                     std::ptr::null(),
                     win32::WS_CHILD | win32::WS_VISIBLE | win32::ES_AUTOHSCROLL | win32::ES_LEFT | 0x0004,
                     0, 0, 0, 0,
@@ -217,7 +220,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let hwnd_listbox = unsafe {
                 win32::CreateWindowExW(
                     0,
-                    util::to_wstring("LISTBOX").as_ptr(),
+                    util::wstr_listbox().as_ptr(),
                     std::ptr::null(),
                     win32::WS_CHILD | win32::WS_VISIBLE | win32::WS_VSCROLL
                         | win32::LBS_NOTIFY | win32::LBS_HASSTRINGS
@@ -235,8 +238,10 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let _ = LISTBOX_HWND.set(SafeHWND(hwnd_listbox));
 
             // Set up subclassing for keyboard control
-            let old_proc = win32::SetWindowLongPtrW(hwnd_edit, win32::GWLP_WNDPROC, edit_subclass_proc as *const () as win32::LONG_PTR);
-            let _ = OLD_EDIT_PROC.set(SafeWndProc(std::mem::transmute(old_proc)));
+            let old_proc = unsafe {
+                win32::SetWindowLongPtrW(hwnd_edit, win32::GWLP_WNDPROC, edit_subclass_proc as *const () as win32::LONG_PTR)
+            };
+            let _ = OLD_EDIT_PROC.set(SafeWndProc(unsafe { std::mem::transmute(old_proc) }));
             state::log_debug(&format!("Edit subclass applied. Old proc: {:?}", old_proc));
 
             // Apply theme resources right after controls are initialized
@@ -359,7 +364,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let rc = dis.rc_item;
             let selected = (dis.item_state & win32::ODS_SELECTED) != 0;
 
-            let (is_dark, mode, is_folder) = {
+            let (is_dark, _mode, is_folder) = {
                 let state_guard = APP_STATE.lock().unwrap();
                 state_guard.as_ref().map_or((false, Mode::Snippet, false), |s| {
                     let is_folder = if s.mode == Mode::Snippet && (dis.item_id as usize) < s.current_full_paths.len() {
@@ -381,10 +386,22 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             // Setup colors based on selection status
             let bg_color = if selected { colors.sel_bg } else { colors.window_bg };
             let text_color = if selected { colors.sel_text } else { colors.text_color };
-            let num_color = if selected { colors.sel_text } else { colors.num_color };
 
-            // Draw item background
-            let bg_brush = unsafe { win32::CreateSolidBrush(bg_color) };
+            // Draw item background using cached brushes
+            let (bg_brush, delete_brush) = if selected {
+                if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap().as_ref() {
+                    (*brush, false)
+                } else {
+                    (unsafe { win32::CreateSolidBrush(bg_color) }, true)
+                }
+            } else {
+                if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().as_ref() {
+                    (*brush, false)
+                } else {
+                    (unsafe { win32::CreateSolidBrush(bg_color) }, true)
+                }
+            };
+
             if selected {
                 // Pill-shaped rounded floating background: add 4px horizontal and 2px vertical margins
                 let pill_rc = win32::RECT {
@@ -406,7 +423,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             } else {
                 unsafe { win32::FillRect(hdc, &rc, bg_brush) };
             }
-            unsafe { win32::DeleteObject(bg_brush) };
+            if delete_brush {
+                unsafe { win32::DeleteObject(bg_brush) };
+            }
 
             unsafe { win32::SetBkMode(hdc, 1 /* TRANSPARENT */) };
 
@@ -443,7 +462,6 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
 
             // Draw folder indicator `>` on the right edge
             if is_folder {
-                let arrow_w = util::to_wstring(">");
                 let mut arrow_rc = win32::RECT {
                     left: rc.right - 20,
                     top: rc.top,
@@ -453,7 +471,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 unsafe {
                     win32::SetTextColor(hdc, text_color);
                     win32::DrawTextW(
-                        hdc, arrow_w.as_ptr(), -1, &mut arrow_rc,
+                        hdc, util::wstr_arrow().as_ptr(), -1, &mut arrow_rc,
                         win32::DT_SINGLELINE | win32::DT_VCENTER | win32::DT_RIGHT | win32::DT_NOPREFIX,
                     );
                 }
@@ -476,15 +494,19 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             unsafe { win32::GetClientRect(hwnd, &mut rc) };
 
             // Draw 1px clean border
-            let border_brush = unsafe { win32::CreateSolidBrush(colors.border_color) };
+            let mut delete_border = false;
+            let border_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().as_ref() {
+                *brush
+            } else {
+                delete_border = true;
+                unsafe { win32::CreateSolidBrush(colors.border_color) }
+            };
             unsafe { win32::FrameRect(hdc, &rc, border_brush) };
-            unsafe { win32::DeleteObject(border_brush) };
+            if delete_border {
+                unsafe { win32::DeleteObject(border_brush) };
+            }
 
             // Fill window background outside controls to ensure clean look
-            let bg_brush = unsafe { win32::CreateSolidBrush(colors.window_bg) };
-            // Draw a thin border fill or just draw inside client margins
-            unsafe { win32::DeleteObject(bg_brush) };
-
             unsafe { win32::ReleaseDC(hwnd, hdc) };
             return res;
         }
@@ -500,9 +522,17 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
             unsafe { win32::GetClientRect(hwnd, &mut rc) };
 
-            let bg_brush = unsafe { win32::CreateSolidBrush(colors.window_bg) };
+            let mut delete_bg = false;
+            let bg_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap().as_ref() {
+                *brush
+            } else {
+                delete_bg = true;
+                unsafe { win32::CreateSolidBrush(colors.window_bg) }
+            };
             unsafe { win32::FillRect(hdc, &rc, bg_brush) };
-            unsafe { win32::DeleteObject(bg_brush) };
+            if delete_bg {
+                unsafe { win32::DeleteObject(bg_brush) };
+            }
             return 1;
         }
         win32::WM_ACTIVATE => {
@@ -558,14 +588,15 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let mut state_guard = APP_STATE.lock().unwrap();
                 if let Some(state) = &mut *state_guard {
                     state.last_clipboard_value = text.clone();
-                    if let Some(pos) = state.history.iter().position(|x| x == &text) {
-                        state.history.remove(pos);
+                    let history = std::sync::Arc::make_mut(&mut state.history);
+                    if let Some(pos) = history.iter().position(|x| x == &text) {
+                        history.remove(pos);
                     }
-                    state.history.push_front(text);
-                    if state.history.len() > 100 {
-                        state.history.pop_back();
+                    history.push_front(text);
+                    if history.len() > 1000 {
+                        history.pop_back();
                     }
-                    util::save_history(&state.history);
+                    util::save_history(history);
                 }
             }
         }
@@ -589,6 +620,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 unsafe { win32::DeleteObject(brush) };
             }
             if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX.lock().unwrap().take() {
+                unsafe { win32::DeleteObject(brush) };
+            }
+            if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER.lock().unwrap().take() {
+                unsafe { win32::DeleteObject(brush) };
+            }
+            if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG.lock().unwrap().take() {
                 unsafe { win32::DeleteObject(brush) };
             }
             unsafe { win32::PostQuitMessage(0) };

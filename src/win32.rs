@@ -1,4 +1,5 @@
 #[cfg(target_os = "windows")]
+#[allow(non_snake_case, non_camel_case_types, dead_code)]
 mod windows {
     use std::ffi::c_void;
 
@@ -91,6 +92,13 @@ mod windows {
         pub top: i32,
         pub right: i32,
         pub bottom: i32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct DATA_BLOB {
+        pub cbData: u32,
+        pub pbData: *mut u8,
     }
 
     #[repr(C)]
@@ -344,6 +352,7 @@ mod windows {
         pub fn GetCurrentThreadId() -> u32;
         pub fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: BOOL) -> BOOL;
         pub fn GetProcAddress(hModule: HINSTANCE, lpProcName: *const u8) -> *mut c_void;
+        pub fn LocalFree(hMem: *mut c_void) -> *mut c_void;
     }
 
     #[link(name = "dwmapi")]
@@ -363,6 +372,29 @@ mod windows {
         pub fn RegOpenKeyExW(hKey: HKEY, lpSubKey: *const u16, ulOptions: u32, samDesired: u32, phkResult: *mut HKEY) -> i32;
         pub fn RegQueryValueExW(hKey: HKEY, lpValueName: *const u16, lpReserved: *mut u32, lpType: *mut u32, lpData: *mut u8, lpcbData: *mut u32) -> i32;
         pub fn RegCloseKey(hKey: HKEY) -> i32;
+    }
+
+    #[link(name = "crypt32")]
+    unsafe extern "system" {
+        pub fn CryptProtectData(
+            pDataIn: *const DATA_BLOB,
+            szDataDescr: *const u16,
+            pOptionalEntropy: *const DATA_BLOB,
+            pvReserved: *mut c_void,
+            pPromptStruct: *mut c_void,
+            dwFlags: u32,
+            pDataOut: *mut DATA_BLOB,
+        ) -> BOOL;
+
+        pub fn CryptUnprotectData(
+            pDataIn: *const DATA_BLOB,
+            ppszDataDescr: *mut *mut u16,
+            pOptionalEntropy: *const DATA_BLOB,
+            pvReserved: *mut c_void,
+            pPromptStruct: *mut c_void,
+            dwFlags: u32,
+            pDataOut: *mut DATA_BLOB,
+        ) -> BOOL;
     }
 
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
@@ -428,7 +460,15 @@ mod windows {
     pub unsafe fn GetProcAddress(_m: HWND, _n: *const u8) -> *mut std::ffi::c_void { std::ptr::null_mut() }
     pub unsafe fn DwmSetWindowAttribute(_h: HWND, _a: u32, _p: *const std::ffi::c_void, _c: u32) -> i32 { 0 }
     pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
-    pub unsafe fn SetWindowTheme(_h: HWND, _n: *const u16, _i: *const u16) -> i32 { 0 }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct DATA_BLOB {
+        pub cbData: u32,
+        pub pbData: *mut std::ffi::c_void,
+    }
+    pub unsafe fn CryptProtectData(_a: *const DATA_BLOB, _b: *const u16, _c: *const DATA_BLOB, _d: *mut std::ffi::c_void, _e: *mut std::ffi::c_void, _f: u32, _g: *mut DATA_BLOB) -> i32 { 0 }
+    pub unsafe fn CryptUnprotectData(_a: *const DATA_BLOB, _b: *mut *mut u16, _c: *const DATA_BLOB, _d: *mut std::ffi::c_void, _e: *mut std::ffi::c_void, _f: u32, _g: *mut DATA_BLOB) -> i32 { 0 }
+    pub unsafe fn LocalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
 }
 
 pub use windows::*;
