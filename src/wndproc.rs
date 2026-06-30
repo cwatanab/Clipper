@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub static EDIT_FOCUSED: AtomicBool = AtomicBool::new(false);
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, MIGEMO_DICT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, APP_STATE, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_CLIPBOARD_CHANGED, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -171,7 +171,7 @@ pub unsafe extern "system" fn edit_subclass_proc(hwnd: win32::HWND, msg: u32, wp
                             }
                         }
                         std::mem::drop(state_guard);
-                        ui::update_listbox_items(MIGEMO_DICT.get());
+                        ui::update_listbox_items();
                         return 0;
                     }
                 }
@@ -308,7 +308,7 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             let code = (wparam >> 16) & 0xFFFF;
             if ctrl_id == 101 {
                 if code == win32::EN_CHANGE as usize {
-                    ui::update_listbox_items(MIGEMO_DICT.get());
+                    ui::update_listbox_items();
                 } else if code == 0x0100 /* EN_SETFOCUS */ {
                     EDIT_FOCUSED.store(true, Ordering::SeqCst);
                     unsafe { win32::InvalidateRect(hwnd, std::ptr::null(), 1); }

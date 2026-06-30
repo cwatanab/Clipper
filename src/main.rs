@@ -17,7 +17,7 @@ use std::time::Duration;
 use arboard::Clipboard;
 
 use crate::hook::keyboard_hook_proc;
-use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND, MIGEMO_DICT, WM_CLIPBOARD_CHANGED};
+use crate::state::{Mode, SafeHWND, APP_STATE, MAIN_HWND, WM_CLIPBOARD_CHANGED};
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,9 +35,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     state::start_logging_thread();
-    if let Some(dict) = dict::load() {
-        let _ = MIGEMO_DICT.set(dict);
-    }
 
     let mut app_state = state::AppState {
         history: std::sync::Arc::new(util::load_history()),
@@ -128,6 +125,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state::log_debug("SetWindowsHookExW failed to register on main thread!");
         } else {
             state::log_debug("SetWindowsHookExW registered successfully on main thread.");
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let handle = win32::GetCurrentProcess();
+            win32::SetProcessWorkingSetSize(handle, !0, !0);
         }
 
         thread::spawn(move || {

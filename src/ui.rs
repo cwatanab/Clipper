@@ -3,16 +3,14 @@ use std::time::Duration;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use arboard::Clipboard;
-use rustmigemo::migemo::compact_dictionary::CompactDictionary;
-
 use crate::filter;
-use crate::state::{self, Mode, SafeHWND, MIGEMO_DICT, APP_STATE, EDIT_HWND, LISTBOX_HWND, MAIN_HWND};
+use crate::state::{self, Mode, SafeHWND, APP_STATE, EDIT_HWND, LISTBOX_HWND, MAIN_HWND};
 use crate::util;
 use crate::win32;
 
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
 
-pub fn update_listbox_items(_dict_opt: Option<&CompactDictionary>) {
+pub fn update_listbox_items() {
     if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(_hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
         let len = unsafe { win32::GetWindowTextLengthW(*hwnd_edit) } as usize;
         let mut buf = vec![0u16; len + 1];
@@ -61,8 +59,8 @@ pub fn update_listbox_items(_dict_opt: Option<&CompactDictionary>) {
                 filter_generation: generation,
             };
 
-            let dict = MIGEMO_DICT.get();
-            let (display_items, full_paths) = filter::filter_items(&query_text, &temp_state, dict);
+            let dict = state::get_migemo_dict();
+            let (display_items, full_paths) = filter::filter_items(&query_text, &temp_state, dict.as_deref());
 
             if FILTER_GEN.load(Ordering::SeqCst) != generation {
                 return; // Newer input arrived
@@ -139,7 +137,7 @@ pub fn on_select() {
                             win32::SetFocus(*hwnd_edit);
                         }
                     }
-                    update_listbox_items(MIGEMO_DICT.get());
+                    update_listbox_items();
                     update_search_cue_banner();
                     return;
                 } else if target_path.starts_with("dir:") {
@@ -157,7 +155,7 @@ pub fn on_select() {
                             win32::SetFocus(*hwnd_edit);
                         }
                     }
-                    update_listbox_items(MIGEMO_DICT.get());
+                    update_listbox_items();
                     update_search_cue_banner();
                     return;
                 }
@@ -235,7 +233,7 @@ pub fn delete_selected_item() {
                 }
                 std::mem::drop(state_guard);
                 
-                update_listbox_items(MIGEMO_DICT.get());
+                update_listbox_items();
                 
                 // Keep the selection at the same position or move it up if we deleted the last item
                 let count = unsafe { win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0) } as isize;
@@ -328,7 +326,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             win32::SetFocus(*hwnd_edit);
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
-        update_listbox_items(MIGEMO_DICT.get());
+        update_listbox_items();
         update_search_cue_banner();
     }
 }
@@ -338,10 +336,24 @@ pub fn hide_window() {
         let mut state_guard = APP_STATE.lock().unwrap();
         if let Some(state) = &mut *state_guard {
             state.visible = false;
+            // Clear search result lists to free up memory immediately
+            state.current_results.clear();
+            state.current_full_paths.clear();
         }
     }
+    
+    // Clear Migemo dictionary from memory
+    state::clear_migemo_dict();
+
     if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };
+    }
+
+    // Empty working set memory on Windows to trim resource footprint
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let handle = win32::GetCurrentProcess();
+        win32::SetProcessWorkingSetSize(handle, !0, !0);
     }
 }
 

@@ -68,8 +68,22 @@ pub static EDIT_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static LISTBOX_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static OLD_EDIT_PROC: OnceLock<SafeWndProc> = OnceLock::new();
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
+pub static MIGEMO_DICT: Mutex<Option<Arc<CompactDictionary>>> = Mutex::new(None);
 
-pub static MIGEMO_DICT: OnceLock<CompactDictionary> = OnceLock::new();
+pub fn get_migemo_dict() -> Option<Arc<CompactDictionary>> {
+    let mut guard = MIGEMO_DICT.lock().unwrap();
+    if guard.is_none() {
+        if let Some(dict) = crate::dict::load() {
+            *guard = Some(Arc::new(dict));
+        }
+    }
+    guard.clone()
+}
+
+pub fn clear_migemo_dict() {
+    let mut guard = MIGEMO_DICT.lock().unwrap();
+    *guard = None;
+}
 
 pub static BRUSH_BG: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));
 pub static BRUSH_CTRL: Lazy<Mutex<Option<SafeHBRUSH>>> = Lazy::new(|| Mutex::new(None));

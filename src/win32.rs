@@ -359,6 +359,12 @@ mod windows {
         pub fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: BOOL) -> BOOL;
         pub fn GetProcAddress(hModule: HINSTANCE, lpProcName: *const u8) -> *mut c_void;
         pub fn LocalFree(hMem: *mut c_void) -> *mut c_void;
+        pub fn GetCurrentProcess() -> *mut c_void;
+        pub fn SetProcessWorkingSetSize(
+            hProcess: *mut c_void,
+            dwMinimumWorkingSetSize: usize,
+            dwMaximumWorkingSetSize: usize,
+        ) -> BOOL;
     }
 
     #[link(name = "dwmapi")]
@@ -484,6 +490,8 @@ mod windows {
     pub unsafe fn Polygon(_hdc: usize, _apt: *const std::ffi::c_void, _cpt: i32) -> i32 { 0 }
     pub unsafe fn Ellipse(_hdc: usize, _left: i32, _top: i32, _right: i32, _bottom: i32) -> i32 { 0 }
     pub unsafe fn GetFocus() -> HWND { std::ptr::null_mut() }
+    pub unsafe fn GetCurrentProcess() -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn SetProcessWorkingSetSize(_h: *mut std::ffi::c_void, _min: usize, _max: usize) -> i32 { 0 }
 }
 
 pub use windows::*;
