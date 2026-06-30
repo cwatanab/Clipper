@@ -122,11 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state::log_debug("SetWindowsHookExW registered successfully on main thread.");
         }
 
-        #[cfg(target_os = "windows")]
-        {
-            let handle = win32::GetCurrentProcess();
-            win32::SetProcessWorkingSetSize(handle, !0, !0);
-        }
+
 
 
 

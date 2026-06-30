@@ -414,12 +414,7 @@ pub fn hide_window() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };
     }
 
-    // Empty working set memory on Windows to trim resource footprint
-    #[cfg(target_os = "windows")]
-    unsafe {
-        let handle = win32::GetCurrentProcess();
-        win32::SetProcessWorkingSetSize(handle, !0, !0);
-    }
+
 }
 
 pub fn restore_focus(last_active_window: Option<usize>) {
