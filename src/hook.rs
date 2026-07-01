@@ -1,6 +1,9 @@
 use std::sync::atomic::Ordering;
 
-use crate::state::{SafeHWND, SafeHHOOK, LAST_KEY_VK, LAST_KEY_TIME, MAIN_HWND, MOUSE_HOOK, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_HIDE_WINDOW};
+use crate::state::{
+    SafeHWND, SafeHHOOK, LAST_KEY_VK, LAST_KEY_TIME, LAST_KEYDOWN_TIME,
+    MAIN_HWND, MOUSE_HOOK, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_HIDE_WINDOW,
+};
 use crate::win32;
 
 #[cfg(target_os = "windows")]
@@ -8,6 +11,7 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: win32::WPARA
     if code >= 0 {
         let kbd = unsafe { *(lparam as *const win32::KBDLLHOOKSTRUCT) };
         let vk = kbd.vk_code as u16;
+        let now_time = kbd.time;
 
         if wparam == win32::WM_KEYUP as win32::WPARAM || wparam == win32::WM_SYSKEYUP as win32::WPARAM {
             let is_shift = vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT;
@@ -17,9 +21,9 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: win32::WPARA
                 let mapped_vk = if is_shift { win32::VK_SHIFT as u32 } else { win32::VK_CONTROL as u32 };
                 let prev_vk = LAST_KEY_VK.load(Ordering::Relaxed);
                 let prev_time = LAST_KEY_TIME.load(Ordering::Relaxed);
-                let now_time = kbd.time;
+                let keydown_time = LAST_KEYDOWN_TIME.load(Ordering::Relaxed);
 
-                if prev_vk == mapped_vk && now_time.wrapping_sub(prev_time) < 500 {
+                if prev_vk == mapped_vk && keydown_time.wrapping_sub(prev_time) < 500 {
                     let main_hwnd_val = MAIN_HWND.get();
                     if let Some(SafeHWND(main_hwnd)) = main_hwnd_val {
                         if *main_hwnd != std::ptr::null_mut() {
@@ -37,7 +41,9 @@ pub unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: win32::WPARA
         } else if wparam == win32::WM_KEYDOWN as win32::WPARAM || wparam == win32::WM_SYSKEYDOWN as win32::WPARAM {
             let is_modifier = vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT
                 || vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL;
-            if !is_modifier {
+            if is_modifier {
+                LAST_KEYDOWN_TIME.store(now_time, Ordering::Relaxed);
+            } else {
                 LAST_KEY_VK.store(0, Ordering::Relaxed);
             }
         }
@@ -56,6 +62,7 @@ pub unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: win32::WPARAM, 
             || wp == win32::WM_NCRBUTTONDOWN 
             || wp == win32::WM_NCMBUTTONDOWN 
         {
+            LAST_KEY_VK.store(0, Ordering::Relaxed);
             let ms = unsafe { *(lparam as *const win32::MSLLHOOKSTRUCT) };
             let pt = ms.pt;
             

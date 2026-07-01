@@ -138,6 +138,15 @@ mod windows {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct MONITORINFO {
+        pub cbSize: u32,
+        pub rcMonitor: RECT,
+        pub rcWork: RECT,
+        pub dwFlags: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct KEYBDINPUT {
         pub w_vk: u16,
         pub w_scan: u16,
@@ -298,6 +307,8 @@ mod windows {
     pub const TPM_RETURNCMD: u32 = 0x0100;
     pub const TPM_LEFTALIGN: u32 = 0x0000;
 
+    pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
+
     #[link(name = "user32")]
     unsafe extern "system" {
         pub fn GetForegroundWindow() -> HWND;
@@ -350,7 +361,9 @@ mod windows {
         pub fn GetDC(hWnd: HWND) -> HDC;
         pub fn ReleaseDC(hWnd: HWND, hDC: HDC) -> i32;
         pub fn GetDpiForWindow(hwnd: HWND) -> u32;
+        pub fn SetProcessDpiAwarenessContext(value: *mut c_void) -> BOOL;
         pub fn MonitorFromWindow(hwnd: HWND, dwFlags: u32) -> *mut c_void;
+        pub fn GetMonitorInfoW(hMonitor: *mut c_void, lpmi: *mut MONITORINFO) -> BOOL;
         pub fn AddClipboardFormatListener(hwnd: HWND) -> BOOL;
         pub fn RemoveClipboardFormatListener(hwnd: HWND) -> BOOL;
         pub fn OpenClipboard(hWndNewOwner: HWND) -> BOOL;
@@ -460,6 +473,110 @@ mod windows {
     }
 
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
+
+    // --- MSAA / IAccessible support for caret position ---
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct GUID {
+        pub data1: u32,
+        pub data2: u16,
+        pub data3: u16,
+        pub data4: [u8; 8],
+    }
+
+    /// Minimal VARIANT for passing CHILDID_SELF to COM methods.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct VARIANT {
+        pub vt: u16,
+        pub reserved1: u16,
+        pub reserved2: u16,
+        pub reserved3: u16,
+        pub val: i64,
+    }
+
+    pub const OBJID_CARET: u32 = 0xFFFF_FFF8u32;
+
+    pub const IID_IACCESSIBLE: GUID = GUID {
+        data1: 0x618736E0,
+        data2: 0x3C3D,
+        data3: 0x11CF,
+        data4: [0x81, 0x0C, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71],
+    };
+
+    #[link(name = "oleacc")]
+    unsafe extern "system" {
+        pub fn AccessibleObjectFromWindow(
+            hwnd: HWND,
+            dwId: u32,
+            riid: *const GUID,
+            ppvObject: *mut *mut c_void,
+        ) -> i32;
+    }
+
+    #[link(name = "ole32")]
+    unsafe extern "system" {
+        pub fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> i32;
+    }
+
+    pub const COINIT_APARTMENTTHREADED: u32 = 0x2;
+
+    // IAccessible vtable indices
+    const IUNKNOWN_RELEASE: usize = 2;
+    const IACCESSIBLE_ACC_LOCATION: usize = 22;
+
+    /// Try to get the caret screen rectangle via MSAA IAccessible.
+    /// Returns Some((x, y, width, height)) in screen coordinates on success.
+    pub fn get_caret_rect_accessible(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
+        unsafe {
+            let mut pacc: *mut c_void = std::ptr::null_mut();
+            let hr = AccessibleObjectFromWindow(
+                hwnd,
+                OBJID_CARET,
+                &IID_IACCESSIBLE,
+                &mut pacc,
+            );
+            if hr != 0 || pacc.is_null() {
+                return None;
+            }
+
+            // Raw COM vtable call: pacc -> vtable -> fn_ptr
+            let vtable = *(pacc as *const *const usize);
+
+            let mut left: i32 = 0;
+            let mut top: i32 = 0;
+            let mut width: i32 = 0;
+            let mut height: i32 = 0;
+
+            // CHILDID_SELF: vt=VT_I4(3), val=0
+            let child_self = VARIANT {
+                vt: 3,
+                reserved1: 0,
+                reserved2: 0,
+                reserved3: 0,
+                val: 0,
+            };
+
+            // accLocation(this, &left, &top, &width, &height, varChild) -> HRESULT
+            let acc_location: unsafe extern "system" fn(
+                *mut c_void, *mut i32, *mut i32, *mut i32, *mut i32, VARIANT,
+            ) -> i32 = std::mem::transmute(*vtable.add(IACCESSIBLE_ACC_LOCATION));
+
+            let hr2 = acc_location(pacc, &mut left, &mut top, &mut width, &mut height, child_self);
+
+            // Release
+            let release: unsafe extern "system" fn(*mut c_void) -> u32 =
+                std::mem::transmute(*vtable.add(IUNKNOWN_RELEASE));
+            release(pacc);
+
+            if hr2 == 0 {
+                Some((left, top, width, height))
+            } else {
+                None
+            }
+        }
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -581,6 +698,20 @@ mod windows {
     pub unsafe fn GlobalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
     pub unsafe fn BeginPaint(_hwnd: HWND, _lpPaint: *mut PAINTSTRUCT) -> usize { 0 }
     pub unsafe fn EndPaint(_hwnd: HWND, _lpPaint: *const PAINTSTRUCT) -> i32 { 0 }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct MONITORINFO {
+        pub cbSize: u32,
+        pub rcMonitor: RECT,
+        pub rcWork: RECT,
+        pub dwFlags: u32,
+    }
+    pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
+    pub unsafe fn MonitorFromWindow(_hwnd: HWND, _dw_flags: u32) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn GetMonitorInfoW(_h_monitor: *mut std::ffi::c_void, _lpmi: *mut MONITORINFO) -> i32 { 0 }
+    pub unsafe fn GetDpiForWindow(_hwnd: HWND) -> u32 { 96 }
+    pub unsafe fn SetProcessDpiAwarenessContext(_value: *mut std::ffi::c_void) -> i32 { 0 }
 }
 
 pub use windows::*;

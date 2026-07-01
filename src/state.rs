@@ -61,6 +61,7 @@ unsafe impl Sync for SafeHFONT {}
 
 pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
+pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
 /// Poison-safe lock helper for APP_STATE.
@@ -105,8 +106,8 @@ pub static BRUSH_SEL_BG: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
 pub static FONT_EDIT: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_LISTBOX: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_LISTBOX_BOLD: Mutex<Option<SafeHFONT>> = Mutex::new(None);
-pub static FONT_ICONS_16: OnceLock<SafeHFONT> = OnceLock::new();
-pub static FONT_ICONS_18: OnceLock<SafeHFONT> = OnceLock::new();
+pub static FONT_ICONS_16: Mutex<Option<SafeHFONT>> = Mutex::new(None);
+pub static FONT_ICONS_18: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 
 pub fn log_debug(_msg: &str) {}
 

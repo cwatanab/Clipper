@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub static EDIT_FOCUSED: AtomicBool = AtomicBool::new(false);
 
 use crate::darkmode;
-use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, lock_state, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_HIDE_WINDOW};
+use crate::state::{self, SafeHWND, SafeWndProc, SafeHBRUSH, SafeHFONT, lock_state, BRUSH_BG, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_BORDER, BRUSH_SEL_BG, EDIT_HWND, FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, MAIN_HWND, OLD_EDIT_PROC, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_HIDE_WINDOW};
 use crate::state::Mode;
 use crate::ui;
 use crate::util;
@@ -50,8 +50,6 @@ const DARK_THEME: ThemeColors = ThemeColors {
     border_color: 0x003A3838, // Subtle dark border (RGB: 56, 56, 58)
 };
 
-const IME_ITEM_HEIGHT: u32 = 32;  // Height for listbox candidates (generous padding)
-
 // Update theme colors, brushes, fonts and apply to controls
 pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
     let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -92,42 +90,83 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
         *BRUSH_BORDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_border));
         *BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_sel_bg));
 
-        // Initialize fonts if not done
-        if FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
-            let config = state::CONFIG.get().cloned().unwrap_or_default();
-            let font_edit = util::create_ui_font(&config.font_name, -16, 400);
-            let font_listbox = util::create_ui_font(&config.font_name, -14, 400);
-            let font_listbox_bold = util::create_ui_font(&config.font_name, -14, 700);
-            *FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHFONT(font_edit));
-            *FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHFONT(font_listbox));
-            *FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHFONT(font_listbox_bold));
+        // Scale sizes by DPI scale factor
+        let scale = win32::GetDpiForWindow(hwnd) as f32 / 96.0;
+        let config = state::CONFIG.get().cloned().unwrap_or_default();
+        let font_edit_size = (-16.0 * scale) as i32;
+        let font_listbox_size = (-14.0 * scale) as i32;
+        let icon_16_size = (-16.0 * scale) as i32;
+        let icon_18_size = (-18.0 * scale) as i32;
 
-            let font_name = util::to_wstring("Segoe MDL2 Assets");
-            let font_icons_16 = win32::CreateFontW(
-                -16, 0, 0, 0,
-                400,
-                0, 0, 0,
-                1, // DEFAULT_CHARSET (Required for Segoe MDL2 Assets)
-                0, 0,
-                5, // CLEARTYPE_QUALITY
-                0,
-                font_name.as_ptr(),
-            );
-            let font_icons_18 = win32::CreateFontW(
-                -18, 0, 0, 0,
-                400,
-                0, 0, 0,
-                1, // DEFAULT_CHARSET (Required for Segoe MDL2 Assets)
-                0, 0,
-                5, // CLEARTYPE_QUALITY
-                0,
-                font_name.as_ptr(),
-            );
-            let _ = state::FONT_ICONS_16.set(SafeHFONT(font_icons_16));
-            let _ = state::FONT_ICONS_18.set(SafeHFONT(font_icons_18));
+        // Recreate FONT_EDIT
+        {
+            let mut font_guard = FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHFONT(old_font)) = font_guard.take() {
+                win32::DeleteObject(old_font);
+            }
+            let font_edit = util::create_ui_font(&config.font_name, font_edit_size, 400);
+            *font_guard = Some(SafeHFONT(font_edit));
         }
 
+        // Recreate FONT_LISTBOX
+        {
+            let mut font_guard = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHFONT(old_font)) = font_guard.take() {
+                win32::DeleteObject(old_font);
+            }
+            let font_listbox = util::create_ui_font(&config.font_name, font_listbox_size, 400);
+            *font_guard = Some(SafeHFONT(font_listbox));
+        }
 
+        // Recreate FONT_LISTBOX_BOLD
+        {
+            let mut font_guard = FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHFONT(old_font)) = font_guard.take() {
+                win32::DeleteObject(old_font);
+            }
+            let font_listbox_bold = util::create_ui_font(&config.font_name, font_listbox_size, 700);
+            *font_guard = Some(SafeHFONT(font_listbox_bold));
+        }
+
+        // Recreate FONT_ICONS_16
+        {
+            let mut font_guard = state::FONT_ICONS_16.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHFONT(old_font)) = font_guard.take() {
+                win32::DeleteObject(old_font);
+            }
+            let font_name = util::to_wstring("Segoe MDL2 Assets");
+            let font_icons_16 = win32::CreateFontW(
+                icon_16_size, 0, 0, 0,
+                400,
+                0, 0, 0,
+                1, // DEFAULT_CHARSET (Required for Segoe MDL2 Assets)
+                0, 0,
+                5, // CLEARTYPE_QUALITY
+                0,
+                font_name.as_ptr(),
+            );
+            *font_guard = Some(SafeHFONT(font_icons_16));
+        }
+
+        // Recreate FONT_ICONS_18
+        {
+            let mut font_guard = state::FONT_ICONS_18.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHFONT(old_font)) = font_guard.take() {
+                win32::DeleteObject(old_font);
+            }
+            let font_name = util::to_wstring("Segoe MDL2 Assets");
+            let font_icons_18 = win32::CreateFontW(
+                icon_18_size, 0, 0, 0,
+                400,
+                0, 0, 0,
+                1, // DEFAULT_CHARSET (Required for Segoe MDL2 Assets)
+                0, 0,
+                5, // CLEARTYPE_QUALITY
+                0,
+                font_name.as_ptr(),
+            );
+            *font_guard = Some(SafeHFONT(font_icons_18));
+        }
 
         // Apply to main window and child controls
         darkmode::apply_to_window(hwnd, is_dark);
@@ -144,8 +183,13 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
                 win32::SendMessageW(*hwnd_listbox, win32::WM_SETFONT, *font as win32::WPARAM, 1);
             }
 
+            // Update listbox item height dynamically for high-DPI scaling
+            let item_h = (26.0 * scale) as usize;
+            win32::SendMessageW(*hwnd_listbox, 0x01A0 /* LB_SETITEMHEIGHT */, 0, item_h as win32::LPARAM);
+
             // Add padding to edit box (6px margin left and right)
-            win32::SendMessageW(*hwnd_edit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, (6 | (6 << 16)) as win32::LPARAM);
+            let margin_scaled = (6.0 * scale) as i32;
+            win32::SendMessageW(*hwnd_edit, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, (margin_scaled | (margin_scaled << 16)) as win32::LPARAM);
 
             // Set text placeholder (Cue Banner)
             win32::SendMessageW(*hwnd_edit, win32::EM_SETCUEBANNER, 1, util::wstr_cue().as_ptr() as win32::LPARAM);
@@ -338,15 +382,16 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         }
         win32::WM_SIZE => {
             if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
+                let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
                 let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
                 unsafe { win32::GetClientRect(hwnd, &mut rc) };
                 let cw = rc.right - rc.left;
                 let ch = rc.bottom - rc.top;
                 
-                let margin = 6;
-                let edit_container_h = 34;
-                let edit_h = 26;
-                let gap = 4;
+                let margin = (6.0 * scale) as i32;
+                let edit_container_h = (34.0 * scale) as i32;
+                let edit_h = (26.0 * scale) as i32;
+                let gap = (4.0 * scale) as i32;
                 
                 let listbox_y = margin + edit_container_h + gap;
                 let listbox_w = cw - margin * 2;
@@ -356,14 +401,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                     win32::MoveWindow(*hwnd_listbox, margin, listbox_y, listbox_w, listbox_h, 1);
                 }
 
-                // Get listbox client width to align the edit control exactly to the listbox items area
-                let mut list_client_rc: win32::RECT = unsafe { std::mem::zeroed() };
-                unsafe { win32::GetClientRect(*hwnd_listbox, &mut list_client_rc) };
-                let list_client_w = list_client_rc.right - list_client_rc.left;
-
                 let edit_y = margin + (edit_container_h - edit_h) / 2;
-                let edit_x = margin + 28; // margin + icon area
-                let edit_w = list_client_w - 36; // Align right edge to the listbox client area
+                let edit_x = margin + (28.0 * scale) as i32; // margin + icon area
+                let edit_w = listbox_w - (36.0 * scale) as i32; // Align right edge to the listbox outer area
                 
                 unsafe {
                     win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
@@ -506,7 +546,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
         win32::WM_MEASUREITEM => {
             let mis = lparam as *mut win32::MEASUREITEMSTRUCT;
             if !mis.is_null() {
-                unsafe { (*mis).item_height = IME_ITEM_HEIGHT; }
+                let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+                unsafe { (*mis).item_height = (26.0 * scale) as u32; }
             }
             return 1;
         }
@@ -568,20 +609,25 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 }
             };
 
+            let scale = unsafe { win32::GetDpiForWindow(dis.hwnd_item) } as f32 / 96.0;
+
             if selected {
-                // Pill-shaped rounded floating background: add 4px horizontal and 2px vertical gap
+                let gap_x = (2.0 * scale) as i32;
+                let gap_y = (1.0 * scale) as i32;
+                // Pill-shaped rounded floating background: add 2px horizontal and 1px vertical gap (scaled)
                 let pill_rc = win32::RECT {
-                    left: rc.left + 4,
-                    top: rc.top + 2,
-                    right: rc.right - 4,
-                    bottom: rc.bottom - 2,
+                    left: rc.left + gap_x,
+                    top: rc.top + gap_y,
+                    right: rc.right - gap_x,
+                    bottom: rc.bottom - gap_y,
                 };
                 unsafe {
                     let old_brush = win32::SelectObject(hdc, bg_brush);
                     let old_pen = win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
                     
-                    // Draw rounded rectangle with ellipse diameter of 8px (more modern)
-                    win32::RoundRect(hdc, pill_rc.left, pill_rc.top, pill_rc.right, pill_rc.bottom, 8, 8);
+                    let round_size = (8.0 * scale) as i32;
+                    // Draw rounded rectangle with scaled ellipse diameter (originally 8px)
+                    win32::RoundRect(hdc, pill_rc.left, pill_rc.top, pill_rc.right, pill_rc.bottom, round_size, round_size);
                     
                     win32::SelectObject(hdc, old_brush);
                     win32::SelectObject(hdc, old_pen);
@@ -616,11 +662,13 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             // Draw icon if present
             let has_icon = icon_type_opt.is_some();
             if let Some(icon_type) = icon_type_opt {
-                let icon_x = rc.left + 12;
-                let icon_y = rc.top + (rc.bottom - rc.top - 16) / 2;
+                let icon_size = (16.0 * scale) as i32;
+                let icon_left = (12.0 * scale) as i32;
+                let icon_x = rc.left + icon_left;
+                let icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
                 // Use dim color for non-selected icons, accent color when selected
                 let icon_color = if selected { colors.sel_text } else { colors.dim_text_color };
-                draw_vector_icon(hdc, icon_type, icon_x, icon_y, 16, icon_color);
+                draw_vector_icon(hdc, icon_type, icon_x, icon_y, icon_size, icon_color);
             }
 
             // Apply normal/bold font based on selection
@@ -634,8 +682,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             }
 
             // Draw candidate text (adjust margin based on pill shape padding)
-            let text_left_margin = if has_icon { 34 } else { 12 };
-            let text_right_margin = if is_folder { 26 } else { 12 };
+            let text_left_margin = if has_icon { (34.0 * scale) as i32 } else { (12.0 * scale) as i32 };
+            let text_right_margin = if is_folder { (26.0 * scale) as i32 } else { (12.0 * scale) as i32 };
             let mut text_rc = win32::RECT {
                 left: rc.left + text_left_margin,
                 top: rc.top,
@@ -671,35 +719,30 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
 
+            let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+
             let mut client_rc: win32::RECT = unsafe { std::mem::zeroed() };
             unsafe { win32::GetClientRect(hwnd, &mut client_rc) };
             let cw = client_rc.right - client_rc.left;
 
-            // Draw a rounded input container border/background
-            let margin = 6;
-            let edit_container_h = 34;
+            // Draw a rounded input container border/background (scaled)
+            let margin = (6.0 * scale) as i32;
+            let gap_x = (2.0 * scale) as i32;
+            let edit_container_h = (34.0 * scale) as i32;
             
-            // Align to listbox client width
-            let mut list_client_w = cw - margin * 2;
-            if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                let mut list_client_rc: win32::RECT = unsafe { std::mem::zeroed() };
-                unsafe {
-                    win32::GetClientRect(*hwnd_listbox, &mut list_client_rc);
-                }
-                list_client_w = list_client_rc.right - list_client_rc.left;
-            }
+            let listbox_w = cw - margin * 2;
             
             let container_rc = win32::RECT {
-                left: margin + 1,
+                left: margin + gap_x,
                 top: margin,
-                right: margin + list_client_w - 1,
+                right: margin + listbox_w - gap_x,
                 bottom: margin + edit_container_h,
             };
             
             // Choose border color and width based on focus
             let focus = EDIT_FOCUSED.load(Ordering::SeqCst);
             let border_color = if focus { colors.sel_bg } else { colors.border_color };
-            let border_width = if focus { 2 } else { 1 };
+            let border_width = if focus { (2.0 * scale) as i32 } else { 1 };
             
             // Draw container background and border using RoundRect
             unsafe {
@@ -709,8 +752,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
                 let old_brush = win32::SelectObject(hdc, bg_brush);
                 
-                // Draw rounded rect with 8px corner radius (more modern)
-                win32::RoundRect(hdc, container_rc.left, container_rc.top, container_rc.right, container_rc.bottom, 10, 10);
+                let round_r = (10.0 * scale) as i32;
+                // Draw rounded rect with scaled corner radius (originally 10px)
+                win32::RoundRect(hdc, container_rc.left, container_rc.top, container_rc.right, container_rc.bottom, round_r, round_r);
                 
                 win32::SelectObject(hdc, old_brush);
                 win32::DeleteObject(bg_brush);
@@ -721,7 +765,9 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             
             // Draw the 🔍 search icon inside the container using native vector drawing
             let icon_color = colors.dim_text_color;
-            draw_vector_icon(hdc, IconType::Search, margin + 6, margin + (edit_container_h - 18) / 2, 18, icon_color);
+            let icon_size = (18.0 * scale) as i32;
+            let icon_margin_left = (6.0 * scale) as i32;
+            draw_vector_icon(hdc, IconType::Search, margin + icon_margin_left, margin + (edit_container_h - icon_size) / 2, icon_size, icon_color);
 
             // Draw 1px clean border of the main window itself
             let mut delete_border = false;
@@ -857,8 +903,12 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
             if let Some(SafeHFONT(font)) = FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 unsafe { win32::DeleteObject(font) };
             }
-            // OnceLock fonts (FONT_ICONS_16/18) cannot be taken/cleared.
-            // OS reclaims all GDI handles on process exit, so skipping explicit deletion is safe.
+            if let Some(SafeHFONT(font)) = state::FONT_ICONS_16.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                unsafe { win32::DeleteObject(font) };
+            }
+            if let Some(SafeHFONT(font)) = state::FONT_ICONS_18.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                unsafe { win32::DeleteObject(font) };
+            }
 
             // Clean up brush objects
             if let Some(SafeHBRUSH(brush)) = BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -900,13 +950,20 @@ pub fn draw_vector_icon(hdc: win32::HDC, icon_type: IconType, x: i32, y: i32, si
     let mut drawn_with_font = false;
 
     unsafe {
-        let font_icons = if size == 18 {
-            state::FONT_ICONS_18.get()
+        let scale = if let Some(SafeHWND(hwnd_main_ref)) = MAIN_HWND.get() {
+            let hwnd_val: win32::HWND = *hwnd_main_ref;
+            win32::GetDpiForWindow(hwnd_val) as f32 / 96.0
         } else {
-            state::FONT_ICONS_16.get()
+            1.0
         };
 
-        if let Some(SafeHFONT(font)) = font_icons {
+        let font_icons_guard = if size as f32 >= 17.5 * scale {
+            state::FONT_ICONS_18.lock().unwrap_or_else(|e| e.into_inner())
+        } else {
+            state::FONT_ICONS_16.lock().unwrap_or_else(|e| e.into_inner())
+        };
+
+        if let Some(SafeHFONT(font)) = font_icons_guard.as_ref() {
             if !font.is_null() {
                 let old_font = win32::SelectObject(hdc, *font as win32::HGDIOBJ);
                 if !old_font.is_null() {

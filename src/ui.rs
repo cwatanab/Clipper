@@ -272,42 +272,78 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
     if let (Some(SafeHWND(hwnd_main)), Some(SafeHWND(hwnd_edit))) = (MAIN_HWND.get(), EDIT_HWND.get()) {
         crate::wndproc::update_theme_resources(*hwnd_main, is_dark);
 
-        let monitor_w = unsafe { win32::GetSystemMetrics(0) };
-        let monitor_h = unsafe { win32::GetSystemMetrics(1) };
         let w = 460; // Width with generous margins
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        // margin(6)*2 + edit_container_h(34) + gap(4) + rows*item_h(32) + margin(6) = 52 + rows*32
-        let h = (max_rows as i32) * 32 + 52;
+        // margin(6)*2 + edit_container_h(34) + gap(4) + rows*item_h(26) + margin(6) = 52 + rows*26 (offset math uses 52)
+        let h = (max_rows as i32) * 26 + 52;
 
-        let (mut x, mut y) = ((monitor_w - w) / 2, (monitor_h - h) / 2);
+        let mut work_rect = win32::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        let mut got_monitor = false;
+
+        let target_hwnd = if !active_hwnd.is_null() { active_hwnd } else { *hwnd_main };
+        if !target_hwnd.is_null() {
+            unsafe {
+                let h_monitor = win32::MonitorFromWindow(target_hwnd, win32::MONITOR_DEFAULTTONEAREST);
+                if !h_monitor.is_null() {
+                    let mut mi: win32::MONITORINFO = std::mem::zeroed();
+                    mi.cbSize = std::mem::size_of::<win32::MONITORINFO>() as u32;
+                    if win32::GetMonitorInfoW(h_monitor, &mut mi) != 0 {
+                        work_rect = mi.rcWork;
+                        got_monitor = true;
+                    }
+                }
+            }
+        }
+
+        if !got_monitor {
+            let monitor_w = unsafe { win32::GetSystemMetrics(0) };
+            let monitor_h = unsafe { win32::GetSystemMetrics(1) };
+            work_rect = win32::RECT { left: 0, top: 0, right: monitor_w, bottom: monitor_h };
+        }
+
+        let (mut x, mut y) = (
+            work_rect.left + (work_rect.right - work_rect.left - w) / 2,
+            work_rect.top + (work_rect.bottom - work_rect.top - h) / 2,
+        );
+
         if !active_hwnd.is_null() {
             let tid = unsafe { win32::GetWindowThreadProcessId(active_hwnd, std::ptr::null_mut()) };
             let mut gui: win32::GUITHREADINFO = unsafe { std::mem::zeroed() };
             gui.cbSize = std::mem::size_of::<win32::GUITHREADINFO>() as u32;
-            if unsafe { win32::GetGUIThreadInfo(tid, &mut gui) } != 0 && !gui.hwndCaret.is_null() {
+            let gui_ok = unsafe { win32::GetGUIThreadInfo(tid, &mut gui) } != 0;
+
+            if gui_ok && !gui.hwndCaret.is_null() {
+                // 1. Standard Win32 caret API
                 let mut pt = win32::POINT { x: gui.rcCaret.left, y: gui.rcCaret.bottom };
                 unsafe { win32::ClientToScreen(gui.hwndCaret, &mut pt) };
                 x = pt.x;
                 y = pt.y + 4;
             } else {
-                // Fallback: use mouse cursor position when caret cannot be retrieved (e.g. in terminals)
-                let mut pt = win32::POINT { x: 0, y: 0 };
-                unsafe { win32::GetCursorPos(&mut pt) };
-                x = pt.x;
-                y = pt.y + 10;
+                // 2. MSAA IAccessible fallback (works for some apps that don't use Win32 caret)
+                let focus_hwnd = if gui_ok && !gui.hwndFocus.is_null() { gui.hwndFocus } else { active_hwnd };
+                if let Some((cx, cy, _cw, ch)) = win32::get_caret_rect_accessible(focus_hwnd) {
+                    x = cx;
+                    y = cy + ch + 4;
+                } else {
+                    // 3. Mouse cursor position as last resort
+                    let mut pt = win32::POINT { x: 0, y: 0 };
+                    unsafe { win32::GetCursorPos(&mut pt) };
+                    x = pt.x;
+                    y = pt.y + 10;
+                }
             }
         }
 
-        if x + w > monitor_w { x = monitor_w - w; }
-        if y + h > monitor_h { y = monitor_h - h; }
-        if x < 0 { x = 0; }
-        if y < 0 { y = 0; }
+        if x + w > work_rect.right { x = work_rect.right - w; }
+        if y + h > work_rect.bottom { y = work_rect.bottom - h; }
+        if x < work_rect.left { x = work_rect.left; }
+        if y < work_rect.top { y = work_rect.top; }
 
         unsafe {
             win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
 
             let mut state_guard = lock_state();
-            if let Some(state) = &mut *state_guard {
+            let display_items_for_listbox = if let Some(state) = &mut *state_guard {
                 let generation = FILTER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
                 state.filter_generation = generation;
 
@@ -315,22 +351,27 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 let (display_items, full_paths) = filter::filter_items("", state, dict.as_deref());
                 state.current_results = display_items;
                 state.current_full_paths = full_paths;
+                Some(state.current_results.clone())
+            } else {
+                None
+            };
+            std::mem::drop(state_guard);
 
+            if let Some(items) = display_items_for_listbox {
                 if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
                     win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
                     win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
-                    for item in &state.current_results {
+                    for item in &items {
                         let item_w = util::to_wstring(item);
                         win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
                     }
-                    if !state.current_results.is_empty() {
+                    if !items.is_empty() {
                         win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
                     }
                     win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
                     win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
                 }
             }
-            std::mem::drop(state_guard);
 
             win32::SetWindowPos(*hwnd_main, std::ptr::null_mut(), x, y, w, h, 0x0040 /* SWP_SHOWWINDOW */);
 

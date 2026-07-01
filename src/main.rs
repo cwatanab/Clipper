@@ -16,10 +16,18 @@ use crate::state::{Mode, SafeHWND, lock_state, MAIN_HWND};
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Set Per-Monitor DPI Aware V2 context
+    unsafe {
+        win32::SetProcessDpiAwarenessContext(-4isize as *mut std::ffi::c_void);
+    }
+
     let config = config::Config::load();
     let _ = state::CONFIG.set(config);
 
     darkmode::apply();
+
+    // Initialize COM for MSAA (IAccessible) caret position detection
+    unsafe { win32::CoInitializeEx(std::ptr::null_mut(), win32::COINIT_APARTMENTTHREADED) };
 
     let _mutex_handle;
     {
