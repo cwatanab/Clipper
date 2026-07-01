@@ -176,6 +176,7 @@ mod windows {
     pub const WM_SYSKEYDOWN: u32 = 0x0104;
     pub const WM_SYSKEYUP: u32 = 0x0105;
     pub const WM_CLIPBOARDUPDATE: u32 = 0x031D;
+    pub const WM_DPICHANGED: u32 = 0x02E0;
     pub const CF_UNICODETEXT: u32 = 13;
     pub const GMEM_MOVEABLE: u32 = 0x0002;
 
@@ -659,6 +660,7 @@ mod windows {
     pub const CF_UNICODETEXT: u32 = 13;
     pub const GMEM_MOVEABLE: u32 = 0x0002;
     pub const WM_CLIPBOARDUPDATE: u32 = 0x031D;
+    pub const WM_DPICHANGED: u32 = 0;
     #[repr(C)]
     #[derive(Clone, Copy)]
     pub struct PAINTSTRUCT {

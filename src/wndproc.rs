@@ -892,6 +892,29 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 }
             }
         }
+        win32::WM_DPICHANGED => {
+            let is_dark = {
+                let state_guard = lock_state();
+                state_guard.as_ref().map_or(false, |s| s.is_dark)
+            };
+            update_theme_resources(hwnd, is_dark);
+
+            let prc = lparam as *const win32::RECT;
+            if !prc.is_null() {
+                unsafe {
+                    let rc = *prc;
+                    win32::SetWindowPos(
+                        hwnd,
+                        std::ptr::null_mut(),
+                        rc.left,
+                        rc.top,
+                        rc.right - rc.left,
+                        rc.bottom - rc.top,
+                        0x0010 /* SWP_NOZORDER */ | 0x0004 /* SWP_NOACTIVATE */,
+                    );
+                }
+            }
+        }
         win32::WM_DESTROY => {
             // Clean up font objects (Mutex-backed fonts use .take() to clear)
             if let Some(SafeHFONT(font)) = FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()).take() {
