@@ -279,7 +279,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             dpi as f32 / 96.0
         };
 
-        let w = (460.0 * scale) as i32; // Width with generous margins (scaled)
+        let w = (380.0 * scale) as i32; // Width with generous margins (scaled)
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
         let item_h = (26.0 * scale) as i32;
         let base_h = (52.0 * scale) as i32;
@@ -520,18 +520,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
 
     let menu = unsafe { win32::CreatePopupMenu() };
     unsafe {
-        // App title header (disabled)
-        win32::AppendMenuW(menu, 0x0001 | 0x0002, 0, util::to_wstring("Clipper").as_ptr());
-        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
-
-        // Basic actions
-        win32::AppendMenuW(menu, 0, 1001, util::to_wstring("スニペットを表示 (Shift連打)").as_ptr());
-        win32::AppendMenuW(menu, 0, 1002, util::to_wstring("クリップボード履歴を表示 (Ctrl連打)").as_ptr());
-        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
-
         // Utility actions
         win32::AppendMenuW(menu, 0, 1004, util::to_wstring("設定ファイルを開く").as_ptr());
         win32::AppendMenuW(menu, 0, 1005, util::to_wstring("スニペットフォルダを開く").as_ptr());
+        win32::AppendMenuW(menu, 0, 1006, util::to_wstring("スニペットを再読み込み").as_ptr());
+        win32::AppendMenuW(menu, 0, 1007, util::to_wstring("このアプリについて").as_ptr());
         win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
 
         // Exit
@@ -547,16 +540,57 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
     };
     unsafe { win32::DestroyMenu(menu) };
 
-    if cmd == 1001 {
-        trigger_app(Mode::Snippet, std::ptr::null_mut());
-    } else if cmd == 1002 {
-        trigger_app(Mode::History, std::ptr::null_mut());
-    } else if cmd == 1004 {
+    if cmd == 1004 {
         let path = crate::config::Config::get_path();
         let _ = std::process::Command::new("explorer").arg(path).spawn();
     } else if cmd == 1005 {
         let path = util::get_app_dir().join("snippets");
         let _ = std::process::Command::new("explorer").arg(path).spawn();
+    } else if cmd == 1006 {
+        let count = {
+            let mut state_guard = lock_state();
+            if let Some(state) = &mut *state_guard {
+                let snippets = util::load_snippets();
+                let len = snippets.len();
+                state.snippets = std::sync::Arc::new(snippets);
+                len
+            } else {
+                0
+            }
+        };
+        let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+        nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+        nid.hWnd = hwnd;
+        nid.uID = 1;
+        nid.uFlags = win32::NIF_INFO;
+        let title_w = util::to_wstring("Clipper");
+        let title_len = std::cmp::min(title_w.len(), 63);
+        nid.szInfoTitle[..title_len].copy_from_slice(&title_w[..title_len]);
+        let msg_w = util::to_wstring(&format!("スニペットを再読み込みしました（{}件）", count));
+        let msg_len = std::cmp::min(msg_w.len(), 255);
+        nid.szInfo[..msg_len].copy_from_slice(&msg_w[..msg_len]);
+        nid.dwInfoFlags = win32::NIIF_INFO;
+        unsafe { win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid) };
+    } else if cmd == 1007 {
+        let version = env!("CARGO_PKG_VERSION");
+        let title_w = util::to_wstring(&format!("Clipper v{}", version));
+        let message_w = util::to_wstring(
+            "Clipper - Snippet & Clipboard Manager\n\n\
+            【簡単な使い方】\n\
+            ・Shiftキーを2回連打: スニペット検索ウィンドウを表示\n\
+            ・Ctrlキーを2回連打: クリップボード履歴ウィンドウを表示\n\n\
+            ・候補選択: ↑ / ↓ または Ctrl+P / Ctrl+N\n\
+            ・自動ペースト: Enterキー\n\
+            ・閉じる: Escキー または ウィンドウ外をクリック"
+        );
+        unsafe {
+            win32::MessageBoxW(
+                hwnd,
+                message_w.as_ptr(),
+                title_w.as_ptr(),
+                win32::MB_OK | win32::MB_ICONINFORMATION,
+            );
+        }
     } else if cmd == 1003 {
         unsafe { win32::PostQuitMessage(0) };
     }

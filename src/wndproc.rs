@@ -625,8 +625,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                     let old_brush = win32::SelectObject(hdc, bg_brush);
                     let old_pen = win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
                     
-                    let round_size = (8.0 * scale) as i32;
-                    // Draw rounded rectangle with scaled ellipse diameter (originally 8px)
+                    let round_size = (4.0 * scale) as i32;
+                    // Draw rounded rectangle with scaled ellipse diameter (originally 8px, reduced to 4px for sharper look)
                     win32::RoundRect(hdc, pill_rc.left, pill_rc.top, pill_rc.right, pill_rc.bottom, round_size, round_size);
                     
                     win32::SelectObject(hdc, old_brush);
@@ -752,8 +752,8 @@ pub unsafe extern "system" fn window_proc(hwnd: win32::HWND, msg: u32, wparam: w
                 let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
                 let old_brush = win32::SelectObject(hdc, bg_brush);
                 
-                let round_r = (10.0 * scale) as i32;
-                // Draw rounded rect with scaled corner radius (originally 10px)
+                let round_r = (4.0 * scale) as i32;
+                // Draw rounded rect with scaled corner radius (originally 10px, reduced to 4px for sharper look)
                 win32::RoundRect(hdc, container_rc.left, container_rc.top, container_rc.right, container_rc.bottom, round_r, round_r);
                 
                 win32::SelectObject(hdc, old_brush);

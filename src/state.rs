@@ -61,7 +61,6 @@ unsafe impl Sync for SafeHFONT {}
 
 pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
-pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
 /// Poison-safe lock helper for APP_STATE.

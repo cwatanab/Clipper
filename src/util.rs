@@ -51,6 +51,42 @@ pub fn load_snippets() -> Vec<(String, String)> {
     snippets
 }
 
+fn parse_toml_snippets(value: &toml::Value, current_prefix: &str, out: &mut Vec<(String, String)>) {
+    match value {
+        toml::Value::String(s) => {
+            if !current_prefix.is_empty() {
+                out.push((current_prefix.to_string(), s.clone()));
+            }
+        }
+        toml::Value::Table(table) => {
+            for (k, v) in table {
+                let next_prefix = if current_prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}/{}", current_prefix, k)
+                };
+                parse_toml_snippets(v, &next_prefix, out);
+            }
+        }
+        toml::Value::Integer(i) => {
+            if !current_prefix.is_empty() {
+                out.push((current_prefix.to_string(), i.to_string()));
+            }
+        }
+        toml::Value::Float(f) => {
+            if !current_prefix.is_empty() {
+                out.push((current_prefix.to_string(), f.to_string()));
+            }
+        }
+        toml::Value::Boolean(b) => {
+            if !current_prefix.is_empty() {
+                out.push((current_prefix.to_string(), b.to_string()));
+            }
+        }
+        _ => {}
+    }
+}
+
 fn load_snippets_recursive(dir: &PathBuf, prefix: &str, out: &mut Vec<(String, String)>) {
     if let Ok(entries) = fs::read_dir(dir) {
         let mut dirs: Vec<PathBuf> = Vec::new();
@@ -58,11 +94,29 @@ fn load_snippets_recursive(dir: &PathBuf, prefix: &str, out: &mut Vec<(String, S
             let path = entry.path();
             if path.is_dir() {
                 dirs.push(path);
-            } else if path.is_file() && path.extension().map_or(false, |ext| ext == "j2" || ext == "txt") {
-                let stem = path.file_stem().unwrap().to_string_lossy().to_string();
-                let name = if prefix.is_empty() { stem } else { format!("{}/{}", prefix, stem) };
-                if let Ok(content) = fs::read_to_string(&path) {
-                    out.push((name, content));
+            } else if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "j2" || ext == "txt" {
+                        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+                        let name = if prefix.is_empty() { stem } else { format!("{}/{}", prefix, stem) };
+                        if let Ok(content) = fs::read_to_string(&path) {
+                            out.push((name, content));
+                        }
+                    } else if ext == "toml" {
+                        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+                        let base_prefix = if stem == "snippets" {
+                            prefix.to_string()
+                        } else if prefix.is_empty() {
+                            stem
+                        } else {
+                            format!("{}/{}", prefix, stem)
+                        };
+                        if let Ok(content) = fs::read_to_string(&path) {
+                            if let Ok(value) = toml::from_str::<toml::Value>(&content) {
+                                parse_toml_snippets(&value, &base_prefix, out);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -307,3 +361,41 @@ define_wstring_cache!(wstr_listbox, "LISTBOX");
 define_wstring_cache!(wstr_cue, "検索 (Migemo)...");
 define_wstring_cache!(wstr_explorer_dark, "DarkMode_Explorer");
 define_wstring_cache!(wstr_explorer, "Explorer");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_toml_snippets() {
+        let toml_content = r#"
+            datetime = "現在日時: {{ datetime }}"
+            number = 123
+            boolean = true
+
+            [git]
+            commit = "feat: {{ clipboard }}"
+            push = "git push"
+
+            [dev.rust]
+            struct = "struct MyStruct"
+        "#;
+        let value: toml::Value = toml::from_str(toml_content).unwrap();
+        let mut out = Vec::new();
+        parse_toml_snippets(&value, "", &mut out);
+
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(
+            out,
+            vec![
+                ("boolean".to_string(), "true".to_string()),
+                ("datetime".to_string(), "現在日時: {{ datetime }}".to_string()),
+                ("dev/rust/struct".to_string(), "struct MyStruct".to_string()),
+                ("git/commit".to_string(), "feat: {{ clipboard }}".to_string()),
+                ("git/push".to_string(), "git push".to_string()),
+                ("number".to_string(), "123".to_string()),
+            ]
+        );
+    }
+}

@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             class_name.as_ptr(),
             util::to_wstring("Clipper").as_ptr(),
             win32::WS_POPUP, // Borderless, we will draw the border in WM_PAINT
-            0, 0, 350, initial_h,
+            0, 0, 380, initial_h,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             hinstance,
@@ -110,7 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         nid.uCallbackMessage = win32::WM_TRAYICON;
         nid.hIcon = app_icon;
 
-        let tip_w = util::to_wstring("Clipper - Snippet & Clipboard Manager");
+        let version = env!("CARGO_PKG_VERSION");
+        let tip_w = util::to_wstring(&format!("Clipper v{}", version));
         let tip_len = std::cmp::min(tip_w.len(), 127);
         nid.szTip[..tip_len].copy_from_slice(&tip_w[..tip_len]);
 

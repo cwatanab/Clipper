@@ -297,10 +297,15 @@ mod windows {
     }
 
     pub const NIM_ADD: u32 = 0;
+    pub const NIM_MODIFY: u32 = 1;
     pub const NIM_DELETE: u32 = 2;
     pub const NIF_MESSAGE: u32 = 1;
     pub const NIF_ICON: u32 = 2;
     pub const NIF_TIP: u32 = 4;
+    pub const NIF_INFO: u32 = 0x10;
+    pub const NIIF_INFO: u32 = 1;
+    pub const MB_OK: u32 = 0x00000000;
+    pub const MB_ICONINFORMATION: u32 = 0x00000040;
     pub const WM_TRAYICON: u32 = 0x8000 + 1;
     pub const WM_LBUTTONDBLCLK: usize = 0x0203;
     pub const WM_RBUTTONUP: usize = 0x0205;
@@ -316,6 +321,7 @@ mod windows {
         pub fn SetForegroundWindow(hwnd: HWND) -> BOOL;
         pub fn GetFocus() -> HWND;
         pub fn IsWindow(hwnd: HWND) -> BOOL;
+        pub fn MessageBoxW(hWnd: HWND, lpText: *const u16, lpCaption: *const u16, uType: u32) -> i32;
         pub fn SetWindowsHookExW(id_hook: i32, lpfn: HOOKPROC, hmod: HINSTANCE, dw_thread_id: u32) -> HHOOK;
         pub fn UnhookWindowsHookEx(hhk: HHOOK) -> BOOL;
         pub fn CallNextHookEx(hhk: HHOOK, n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT;
@@ -412,6 +418,7 @@ mod windows {
     unsafe extern "system" {
         pub fn CreateMutexW(lpMutexAttributes: *mut c_void, bInitialOwner: BOOL, lpName: *const u16) -> *mut c_void;
         pub fn GetLastError() -> u32;
+        pub fn GetTickCount() -> u32;
         pub fn CloseHandle(hObject: *mut c_void) -> BOOL;
         pub fn GetCurrentThreadId() -> u32;
         pub fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: BOOL) -> BOOL;
