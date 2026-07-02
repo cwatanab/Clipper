@@ -3,7 +3,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://microsoft.com/windows)
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.1.5-blue)](https://github.com/cwatanab/Clipper/releases/tag/v0.1.5)
+[![Release](https://img.shields.io/badge/release-v0.1.6-blue)](https://github.com/cwatanab/Clipper/releases/tag/v0.1.6)
 
 **Clipper** は、Windows環境のためにゼロから極限までチューニングされた、超高速・超軽量のスニペット＆クリップボード履歴管理ツールです。
 
@@ -48,7 +48,7 @@
 
 ## 🚀 インストール & はじめ方
 
-1. **[clipper-v0.1.5.zip](https://github.com/cwatanab/Clipper/releases/download/v0.1.5/clipper-v0.1.5.zip) をダウンロード**し、任意の場所に解凍します。
+1. **[clipper-v0.1.6.zip](https://github.com/cwatanab/Clipper/releases/download/v0.1.6/clipper-v0.1.6.zip) をダウンロード**し、任意の場所に解凍します。
 2. 解凍された `clipper.exe` を起動します。タスクトレイに 📋 アイコンが常駐します。
 3. `Shift` を2回、または `Ctrl` を2回連打して検索ウィンドウが表示されれば起動完了です！
 4. スタートアップ（自動起動）に登録したい場合は、ショートカットを Windows の `Startup` フォルダに配置してください。
@@ -60,10 +60,15 @@
 初回起動時に、環境に応じた設定ファイルとフォルダが自動生成されます。
 
 ### 1. 基本設定 (`%APPDATA%\Clipper\config.toml`)
-エディタのフォントや最大表示件数を変更できます。
+エディタのフォント、最大表示件数、ウィンドウ幅、履歴の上限数、連打の検出間隔、履歴のファイル保存のON/OFF、カラーテーマなどを調整できます。
 ```toml
 font_name = "Meiryo UI" # 検索窓やリストの表示フォント
 max_rows = 15           # ウィンドウに表示する最大候補数
+max_history = 1000      # クリップボード履歴の最大保持件数
+width = 380.0           # 検索ウィンドウの基準幅（DPIスケーリング前のピクセル値）
+double_tap_ms = 500     # ホットキー（Shift/Ctrl）を2回連打して起動する際の間隔（ミリ秒）
+save_history = true     # クリップボード履歴を暗号化ファイルに保存するかどうか (true/false)
+theme_mode = "auto"     # カラーテーマ ("auto": システム同期, "dark": ダークモード固定, "light": ライトモード固定)
 ```
 
 ### 2. カスタムスニペットの作成と管理 (`%APPDATA%\Clipper\snippets\`)
@@ -81,33 +86,33 @@ Clipper のスニペットは、指定のフォルダ内にテキストファイ
 
 | プレースホルダー | 展開時の内容 | 使用例 |
 | :--- | :--- | :--- |
-| `{{ clipboard }}` | 現在クリップボードに保持されている文字列（プレーンテキスト） | マークダウンリンクやコードブロックの囲み |
-| `{{ datetime }}` | システムの現在日時 (`YYYY/MM/DD HH:MM:SS` フォーマット) | ログ、メモ、署名の自動挿入 |
+| `{{ input }}` | 選択されている文字列（選択範囲がない場合はクリップボードの内容） | マークダウンリンクやコードブロックの囲み |
+| `{{ now }}` | システムの現在日時 (`YYYY/MM/DD HH:MM:SS` フォーマット) | ログ、メモ、署名の自動挿入 |
 
 #### 💡 具体的なスニペットファイルの設定例
 
 ##### 例1: マークダウンのコードブロック (`snippets/markdown/code.txt`)
-クリップボードにコピーしたコードを瞬時にバッククォートで囲みます。
+クリップボードにコピーした、またはエディタで選択したコードを瞬時にバッククォートで囲みます。
 - **ファイル本文**:
   ```
   ```rust
-  {{ clipboard }}
+  {{ input }}
   ```
   ```
-- **使い方**: 任意のコードをコピーし、`Shift` 連打 -> `markdown` -> `code` を選択して決定すると、コードブロックに囲まれたテキストが自動で貼り付けられます。
+- **使い方**: 任意のコードを選択（またはコピー）し、`Shift` 連打 -> `markdown` -> `code` を選択して決定すると、コードブロックに囲まれたテキストが自動で貼り付けられます。
 
 ##### 例2: コミットメッセージの作成 (`snippets/git/commit.txt`)
 - **ファイル本文**:
   ```
-  feat: {{ clipboard }}
+  feat: {{ input }}
   ```
-- **使い方**: 開発内容メモをコピーしておき、`Shift` 連打 -> `git` -> `commit` を選択すると、`feat: [コピーしたメモ]` として入力されます。
+- **使い方**: 開発内容メモを選択（またはコピー）しておき、`Shift` 連打 -> `git` -> `commit` を選択すると、`feat: [テキスト]` として入力されます。
 
 ##### 例3: 日時入り署名 (`snippets/sign.txt`)
 - **ファイル本文**:
   ```
   --
-  作成日: {{ datetime }}
+  作成日: {{ now }}
   作成者: cwatanab
   ```
 - **使い方**: メモ帳などで `Shift` 連打 -> `sign` を選択するだけで、最新のタイムスタンプが入った署名が挿入されます。

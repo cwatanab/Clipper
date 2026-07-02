@@ -19,7 +19,8 @@ mod windows {
     pub type LPARAM = isize;
     pub type LONG_PTR = isize;
 
-    pub type HOOKPROC = Option<unsafe extern "system" fn(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT>;
+    pub type HOOKPROC =
+        Option<unsafe extern "system" fn(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT>;
     pub type WNDPROC = Option<unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT>;
 
     #[repr(C)]
@@ -187,6 +188,7 @@ mod windows {
     pub const VK_LCONTROL: u16 = 0xA2;
     pub const VK_RCONTROL: u16 = 0xA3;
     pub const VK_V: u16 = 0x56;
+    pub const VK_C: u16 = 0x43;
 
     pub const INPUT_KEYBOARD: u32 = 1;
     pub const KEYEVENTF_KEYUP: u32 = 2;
@@ -225,6 +227,7 @@ mod windows {
     pub const WM_ACTIVATE: u32 = 0x0006;
     pub const WM_PAINT: u32 = 0x000F;
     pub const WM_ERASEBKGND: u32 = 0x0014;
+    pub const WM_SETTINGCHANGE: u32 = 0x001A;
     pub const WA_INACTIVE: usize = 0;
 
     pub const LB_ADDSTRING: u32 = 0x0180;
@@ -304,6 +307,7 @@ mod windows {
     pub const NIF_TIP: u32 = 4;
     pub const NIF_INFO: u32 = 0x10;
     pub const NIIF_INFO: u32 = 1;
+    pub const NIIF_ERROR: u32 = 3;
     pub const MB_OK: u32 = 0x00000000;
     pub const MB_ICONINFORMATION: u32 = 0x00000040;
     pub const WM_TRAYICON: u32 = 0x8000 + 1;
@@ -312,6 +316,8 @@ mod windows {
 
     pub const TPM_RETURNCMD: u32 = 0x0100;
     pub const TPM_LEFTALIGN: u32 = 0x0000;
+    pub const MF_UNCHECKED: u32 = 0x00000000;
+    pub const MF_CHECKED: u32 = 0x00000008;
 
     pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
@@ -321,23 +327,65 @@ mod windows {
         pub fn SetForegroundWindow(hwnd: HWND) -> BOOL;
         pub fn GetFocus() -> HWND;
         pub fn IsWindow(hwnd: HWND) -> BOOL;
-        pub fn MessageBoxW(hWnd: HWND, lpText: *const u16, lpCaption: *const u16, uType: u32) -> i32;
-        pub fn SetWindowsHookExW(id_hook: i32, lpfn: HOOKPROC, hmod: HINSTANCE, dw_thread_id: u32) -> HHOOK;
+        pub fn MessageBoxW(
+            hWnd: HWND,
+            lpText: *const u16,
+            lpCaption: *const u16,
+            uType: u32,
+        ) -> i32;
+        pub fn SetWindowsHookExW(
+            id_hook: i32,
+            lpfn: HOOKPROC,
+            hmod: HINSTANCE,
+            dw_thread_id: u32,
+        ) -> HHOOK;
         pub fn UnhookWindowsHookEx(hhk: HHOOK) -> BOOL;
-        pub fn CallNextHookEx(hhk: HHOOK, n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT;
-        pub fn GetMessageW(lp_msg: *mut MSG, h_wnd: HWND, w_msg_filter_min: u32, w_msg_filter_max: u32) -> BOOL;
+        pub fn CallNextHookEx(hhk: HHOOK, n_code: i32, w_param: WPARAM, l_param: LPARAM)
+        -> LRESULT;
+        pub fn GetMessageW(
+            lp_msg: *mut MSG,
+            h_wnd: HWND,
+            w_msg_filter_min: u32,
+            w_msg_filter_max: u32,
+        ) -> BOOL;
         pub fn TranslateMessage(lp_msg: *const MSG) -> BOOL;
         pub fn DispatchMessageW(lp_msg: *const MSG) -> LRESULT;
         pub fn SendInput(c_inputs: u32, p_inputs: *const INPUT, cb_size: i32) -> u32;
         pub fn RegisterClassW(lpWndClass: *const WNDCLASSW) -> u16;
-        pub fn CreateWindowExW(dwExStyle: u32, lpClassName: *const u16, lpWindowName: *const u16, dwStyle: u32, x: i32, y: i32, nWidth: i32, nHeight: i32, hWndParent: HWND, hMenu: HMENU, hInstance: HINSTANCE, lpParam: *mut c_void) -> HWND;
+        pub fn CreateWindowExW(
+            dwExStyle: u32,
+            lpClassName: *const u16,
+            lpWindowName: *const u16,
+            dwStyle: u32,
+            x: i32,
+            y: i32,
+            nWidth: i32,
+            nHeight: i32,
+            hWndParent: HWND,
+            hMenu: HMENU,
+            hInstance: HINSTANCE,
+            lpParam: *mut c_void,
+        ) -> HWND;
         pub fn DefWindowProcW(hWnd: HWND, Msg: u32, wParam: WPARAM, lParam: LPARAM) -> LRESULT;
         pub fn ShowWindow(hWnd: HWND, nCmdShow: i32) -> BOOL;
         pub fn SetWindowLongPtrW(hWnd: HWND, nIndex: i32, dwNewLong: LONG_PTR) -> LONG_PTR;
         pub fn CreatePopupMenu() -> HMENU;
         pub fn DestroyMenu(hMenu: HMENU) -> BOOL;
-        pub fn AppendMenuW(hMenu: HMENU, uFlags: u32, uIDNewItem: usize, lpNewItem: *const u16) -> BOOL;
-        pub fn TrackPopupMenu(hMenu: HMENU, uFlags: u32, x: i32, y: i32, nReserved: i32, hWnd: HWND, prcRect: *const c_void) -> BOOL;
+        pub fn AppendMenuW(
+            hMenu: HMENU,
+            uFlags: u32,
+            uIDNewItem: usize,
+            lpNewItem: *const u16,
+        ) -> BOOL;
+        pub fn TrackPopupMenu(
+            hMenu: HMENU,
+            uFlags: u32,
+            x: i32,
+            y: i32,
+            nReserved: i32,
+            hWnd: HWND,
+            prcRect: *const c_void,
+        ) -> BOOL;
         pub fn GetCursorPos(lpPoint: *mut POINT);
         pub fn GetSystemMetrics(nIndex: i32) -> i32;
         pub fn SendMessageW(hWnd: HWND, Msg: u32, wParam: WPARAM, lParam: LPARAM) -> LRESULT;
@@ -347,21 +395,57 @@ mod windows {
         pub fn GetWindowTextLengthW(hWnd: HWND) -> i32;
         pub fn SetFocus(hWnd: HWND) -> HWND;
         pub fn GetSysColorBrush(nIndex: i32) -> HBRUSH;
-        pub fn CreateFontW(cHeight: i32, cWidth: i32, cEscapement: i32, cOrientation: i32, cWeight: i32, bItalic: u32, bUnderline: u32, bStrikeOut: u32, iCharSet: u32, iOutPrecision: u32, iClipPrecision: u32, iQuality: u32, iPitchAndFamily: u32, pszFaceName: *const u16) -> HFONT;
+        pub fn CreateFontW(
+            cHeight: i32,
+            cWidth: i32,
+            cEscapement: i32,
+            cOrientation: i32,
+            cWeight: i32,
+            bItalic: u32,
+            bUnderline: u32,
+            bStrikeOut: u32,
+            iCharSet: u32,
+            iOutPrecision: u32,
+            iClipPrecision: u32,
+            iQuality: u32,
+            iPitchAndFamily: u32,
+            pszFaceName: *const u16,
+        ) -> HFONT;
         pub fn PostQuitMessage(nExitCode: i32);
         pub fn GetModuleHandleW(lpModuleName: *const u16) -> HINSTANCE;
         pub fn LoadCursorW(hInstance: HINSTANCE, lpCursorName: *const u16) -> HCURSOR;
         pub fn LoadIconW(hInstance: HINSTANCE, lpIconName: *const u16) -> *mut c_void;
         pub fn GetKeyState(nVirtKey: i32) -> i16;
         pub fn IsDialogMessageW(hDlg: HWND, lpMsg: *const MSG) -> BOOL;
-        pub fn SetWindowPos(hWnd: HWND, hWndInsertAfter: HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: u32) -> BOOL;
+        pub fn SetWindowPos(
+            hWnd: HWND,
+            hWndInsertAfter: HWND,
+            X: i32,
+            Y: i32,
+            cx: i32,
+            cy: i32,
+            uFlags: u32,
+        ) -> BOOL;
         pub fn GetClientRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
         pub fn GetWindowRect(hWnd: HWND, lpRect: *mut RECT) -> BOOL;
-        pub fn MoveWindow(hWnd: HWND, X: i32, Y: i32, nWidth: i32, nHeight: i32, bRepaint: BOOL) -> BOOL;
+        pub fn MoveWindow(
+            hWnd: HWND,
+            X: i32,
+            Y: i32,
+            nWidth: i32,
+            nHeight: i32,
+            bRepaint: BOOL,
+        ) -> BOOL;
         pub fn GetGUIThreadInfo(idThread: u32, pgui: *mut GUITHREADINFO) -> BOOL;
         pub fn GetWindowThreadProcessId(hWnd: HWND, lpdwProcessId: *mut u32) -> u32;
         pub fn ClientToScreen(hWnd: HWND, lpPoint: *mut POINT) -> BOOL;
-        pub fn DrawTextW(hdc: HDC, lpchText: *const u16, cchText: i32, lprc: *mut RECT, format: u32) -> i32;
+        pub fn DrawTextW(
+            hdc: HDC,
+            lpchText: *const u16,
+            cchText: i32,
+            lprc: *mut RECT,
+            format: u32,
+        ) -> i32;
         pub fn FillRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH) -> i32;
         pub fn FrameRect(hDC: HDC, lprc: *const RECT, hbr: HBRUSH) -> i32;
         pub fn InvalidateRect(hWnd: HWND, lpRect: *const RECT, bErase: BOOL) -> BOOL;
@@ -393,10 +477,23 @@ mod windows {
         pub fn CreatePen(iStyle: i32, cWidth: i32, color: u32) -> HGDIOBJ;
         pub fn GetStockObject(i: i32) -> HGDIOBJ;
         pub fn Rectangle(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
-        pub fn RoundRect(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) -> BOOL;
+        pub fn RoundRect(
+            hdc: HDC,
+            left: i32,
+            top: i32,
+            right: i32,
+            bottom: i32,
+            width: i32,
+            height: i32,
+        ) -> BOOL;
         pub fn MoveToEx(hdc: HDC, x: i32, y: i32, lppt: *mut POINT) -> BOOL;
         pub fn LineTo(hdc: HDC, x: i32, y: i32) -> BOOL;
-        pub fn AddFontMemResourceEx(pFileView: *const std::ffi::c_void, cjSize: u32, pvReserved: *mut std::ffi::c_void, pNumFonts: *mut u32) -> *mut std::ffi::c_void;
+        pub fn AddFontMemResourceEx(
+            pFileView: *const std::ffi::c_void,
+            cjSize: u32,
+            pvReserved: *mut std::ffi::c_void,
+            pNumFonts: *mut u32,
+        ) -> *mut std::ffi::c_void;
         pub fn RemoveFontMemResourceEx(h: *mut std::ffi::c_void) -> BOOL;
         pub fn Polygon(hdc: HDC, apt: *const POINT, cpt: i32) -> BOOL;
         pub fn Ellipse(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
@@ -416,7 +513,11 @@ mod windows {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        pub fn CreateMutexW(lpMutexAttributes: *mut c_void, bInitialOwner: BOOL, lpName: *const u16) -> *mut c_void;
+        pub fn CreateMutexW(
+            lpMutexAttributes: *mut c_void,
+            bInitialOwner: BOOL,
+            lpName: *const u16,
+        ) -> *mut c_void;
         pub fn GetLastError() -> u32;
         pub fn GetTickCount() -> u32;
         pub fn CloseHandle(hObject: *mut c_void) -> BOOL;
@@ -438,7 +539,23 @@ mod windows {
 
     #[link(name = "dwmapi")]
     unsafe extern "system" {
-        pub fn DwmSetWindowAttribute(hwnd: HWND, dwAttribute: u32, pvAttribute: *const c_void, cbAttribute: u32) -> i32;
+        pub fn DwmSetWindowAttribute(
+            hwnd: HWND,
+            dwAttribute: u32,
+            pvAttribute: *const c_void,
+            cbAttribute: u32,
+        ) -> i32;
+    }
+
+    #[link(name = "normaliz")]
+    unsafe extern "system" {
+        pub fn NormalizeString(
+            NormForm: i32,
+            lpSrcString: *const u16,
+            cwSrcLength: i32,
+            lpDstString: *mut u16,
+            cwDstLength: i32,
+        ) -> i32;
     }
 
     pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
@@ -447,13 +564,30 @@ mod windows {
 
     #[link(name = "uxtheme")]
     unsafe extern "system" {
-        pub fn SetWindowTheme(hwnd: HWND, pszSubAppName: *const u16, pszSubIdList: *const u16) -> i32;
+        pub fn SetWindowTheme(
+            hwnd: HWND,
+            pszSubAppName: *const u16,
+            pszSubIdList: *const u16,
+        ) -> i32;
     }
 
     #[link(name = "advapi32")]
     unsafe extern "system" {
-        pub fn RegOpenKeyExW(hKey: HKEY, lpSubKey: *const u16, ulOptions: u32, samDesired: u32, phkResult: *mut HKEY) -> i32;
-        pub fn RegQueryValueExW(hKey: HKEY, lpValueName: *const u16, lpReserved: *mut u32, lpType: *mut u32, lpData: *mut u8, lpcbData: *mut u32) -> i32;
+        pub fn RegOpenKeyExW(
+            hKey: HKEY,
+            lpSubKey: *const u16,
+            ulOptions: u32,
+            samDesired: u32,
+            phkResult: *mut HKEY,
+        ) -> i32;
+        pub fn RegQueryValueExW(
+            hKey: HKEY,
+            lpValueName: *const u16,
+            lpReserved: *mut u32,
+            lpType: *mut u32,
+            lpData: *mut u8,
+            lpcbData: *mut u32,
+        ) -> i32;
         pub fn RegCloseKey(hKey: HKEY) -> i32;
     }
 
@@ -539,12 +673,7 @@ mod windows {
     pub fn get_caret_rect_accessible(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
         unsafe {
             let mut pacc: *mut c_void = std::ptr::null_mut();
-            let hr = AccessibleObjectFromWindow(
-                hwnd,
-                OBJID_CARET,
-                &IID_IACCESSIBLE,
-                &mut pacc,
-            );
+            let hr = AccessibleObjectFromWindow(hwnd, OBJID_CARET, &IID_IACCESSIBLE, &mut pacc);
             if hr != 0 || pacc.is_null() {
                 return None;
             }
@@ -568,10 +697,22 @@ mod windows {
 
             // accLocation(this, &left, &top, &width, &height, varChild) -> HRESULT
             let acc_location: unsafe extern "system" fn(
-                *mut c_void, *mut i32, *mut i32, *mut i32, *mut i32, VARIANT,
+                *mut c_void,
+                *mut i32,
+                *mut i32,
+                *mut i32,
+                *mut i32,
+                VARIANT,
             ) -> i32 = std::mem::transmute(*vtable.add(IACCESSIBLE_ACC_LOCATION));
 
-            let hr2 = acc_location(pacc, &mut left, &mut top, &mut width, &mut height, child_self);
+            let hr2 = acc_location(
+                pacc,
+                &mut left,
+                &mut top,
+                &mut width,
+                &mut height,
+                child_self,
+            );
 
             // Release
             let release: unsafe extern "system" fn(*mut c_void) -> u32 =
@@ -647,20 +788,57 @@ mod windows {
         pub pt: RECT,
     }
 
-    pub unsafe fn GetForegroundWindow() -> HWND { 0 }
-    pub unsafe fn SetForegroundWindow(_hwnd: HWND) -> i32 { 0 }
-    pub unsafe fn IsWindow(_hwnd: HWND) -> i32 { 0 }
-    pub unsafe fn GetWindowRect(_hwnd: HWND, _lpRect: *mut RECT) -> i32 { 0 }
-    pub unsafe fn SendInput(_c_inputs: u32, _p_inputs: *const INPUT, _cb_size: i32) -> u32 { 0 }
-    pub unsafe fn IsDialogMessageW(_hDlg: HWND, _lpMsg: *const std::ffi::c_void) -> i32 { 0 }
-    pub unsafe fn GetSysColorBrush(_n_index: i32) -> HBRUSH { std::ptr::null_mut() }
-    pub unsafe fn CreateMutexW(_a: *mut std::ffi::c_void, _b: i32, _c: *const u16) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn GetLastError() -> u32 { 0 }
-    pub unsafe fn CloseHandle(_h: *mut std::ffi::c_void) -> i32 { 0 }
-    pub unsafe fn GetCurrentThreadId() -> u32 { 0 }
-    pub unsafe fn AttachThreadInput(_a: u32, _b: u32, _c: i32) -> i32 { 0 }
-    pub unsafe fn GetProcAddress(_m: HWND, _n: *const u8) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn DwmSetWindowAttribute(_h: HWND, _a: u32, _p: *const std::ffi::c_void, _c: u32) -> i32 { 0 }
+    pub unsafe fn GetForegroundWindow() -> HWND {
+        0
+    }
+    pub unsafe fn SetForegroundWindow(_hwnd: HWND) -> i32 {
+        0
+    }
+    pub unsafe fn IsWindow(_hwnd: HWND) -> i32 {
+        0
+    }
+    pub unsafe fn GetWindowRect(_hwnd: HWND, _lpRect: *mut RECT) -> i32 {
+        0
+    }
+    pub unsafe fn SendInput(_c_inputs: u32, _p_inputs: *const INPUT, _cb_size: i32) -> u32 {
+        0
+    }
+    pub unsafe fn IsDialogMessageW(_hDlg: HWND, _lpMsg: *const std::ffi::c_void) -> i32 {
+        0
+    }
+    pub unsafe fn GetSysColorBrush(_n_index: i32) -> HBRUSH {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn CreateMutexW(
+        _a: *mut std::ffi::c_void,
+        _b: i32,
+        _c: *const u16,
+    ) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn GetLastError() -> u32 {
+        0
+    }
+    pub unsafe fn CloseHandle(_h: *mut std::ffi::c_void) -> i32 {
+        0
+    }
+    pub unsafe fn GetCurrentThreadId() -> u32 {
+        0
+    }
+    pub unsafe fn AttachThreadInput(_a: u32, _b: u32, _c: i32) -> i32 {
+        0
+    }
+    pub unsafe fn GetProcAddress(_m: HWND, _n: *const u8) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn DwmSetWindowAttribute(
+        _h: HWND,
+        _a: u32,
+        _p: *const std::ffi::c_void,
+        _c: u32,
+    ) -> i32 {
+        0
+    }
     pub const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
     pub const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
     pub const DWMWCP_ROUND: u32 = 2;
@@ -684,29 +862,112 @@ mod windows {
         pub cbData: u32,
         pub pbData: *mut std::ffi::c_void,
     }
-    pub unsafe fn CryptProtectData(_a: *const DATA_BLOB, _b: *const u16, _c: *const DATA_BLOB, _d: *mut std::ffi::c_void, _e: *mut std::ffi::c_void, _f: u32, _g: *mut DATA_BLOB) -> i32 { 0 }
-    pub unsafe fn CryptUnprotectData(_a: *const DATA_BLOB, _b: *mut *mut u16, _c: *const DATA_BLOB, _d: *mut std::ffi::c_void, _e: *mut std::ffi::c_void, _f: u32, _g: *mut DATA_BLOB) -> i32 { 0 }
-    pub unsafe fn LocalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn AddFontMemResourceEx(_a: *const std::ffi::c_void, _b: u32, _c: *mut std::ffi::c_void, _d: *mut u32) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn RemoveFontMemResourceEx(_h: *mut std::ffi::c_void) -> i32 { 0 }
-    pub unsafe fn Polygon(_hdc: usize, _apt: *const std::ffi::c_void, _cpt: i32) -> i32 { 0 }
-    pub unsafe fn Ellipse(_hdc: usize, _left: i32, _top: i32, _right: i32, _bottom: i32) -> i32 { 0 }
-    pub unsafe fn GetFocus() -> HWND { std::ptr::null_mut() }
-    pub unsafe fn GetCurrentProcess() -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn SetProcessWorkingSetSize(_h: *mut std::ffi::c_void, _min: usize, _max: usize) -> i32 { 0 }
-    pub unsafe fn AddClipboardFormatListener(_hwnd: HWND) -> i32 { 0 }
-    pub unsafe fn RemoveClipboardFormatListener(_hwnd: HWND) -> i32 { 0 }
-    pub unsafe fn OpenClipboard(_hwnd: HWND) -> i32 { 0 }
-    pub unsafe fn CloseClipboard() -> i32 { 0 }
-    pub unsafe fn GetClipboardData(_format: u32) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn SetClipboardData(_format: u32, _hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn EmptyClipboard() -> i32 { 0 }
-    pub unsafe fn GlobalAlloc(_flags: u32, _bytes: usize) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn GlobalLock(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn GlobalUnlock(_h: *mut std::ffi::c_void) -> i32 { 0 }
-    pub unsafe fn GlobalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn BeginPaint(_hwnd: HWND, _lpPaint: *mut PAINTSTRUCT) -> usize { 0 }
-    pub unsafe fn EndPaint(_hwnd: HWND, _lpPaint: *const PAINTSTRUCT) -> i32 { 0 }
+    pub unsafe fn CryptProtectData(
+        _a: *const DATA_BLOB,
+        _b: *const u16,
+        _c: *const DATA_BLOB,
+        _d: *mut std::ffi::c_void,
+        _e: *mut std::ffi::c_void,
+        _f: u32,
+        _g: *mut DATA_BLOB,
+    ) -> i32 {
+        0
+    }
+    pub unsafe fn CryptUnprotectData(
+        _a: *const DATA_BLOB,
+        _b: *mut *mut u16,
+        _c: *const DATA_BLOB,
+        _d: *mut std::ffi::c_void,
+        _e: *mut std::ffi::c_void,
+        _f: u32,
+        _g: *mut DATA_BLOB,
+    ) -> i32 {
+        0
+    }
+    pub unsafe fn LocalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn AddFontMemResourceEx(
+        _a: *const std::ffi::c_void,
+        _b: u32,
+        _c: *mut std::ffi::c_void,
+        _d: *mut u32,
+    ) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn RemoveFontMemResourceEx(_h: *mut std::ffi::c_void) -> i32 {
+        0
+    }
+    pub unsafe fn Polygon(_hdc: usize, _apt: *const std::ffi::c_void, _cpt: i32) -> i32 {
+        0
+    }
+    pub unsafe fn Ellipse(_hdc: usize, _left: i32, _top: i32, _right: i32, _bottom: i32) -> i32 {
+        0
+    }
+    pub unsafe fn GetFocus() -> HWND {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn GetCurrentProcess() -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn NormalizeString(
+        _NormForm: i32,
+        _lpSrcString: *const u16,
+        _cwSrcLength: i32,
+        _lpDstString: *mut u16,
+        _cwDstLength: i32,
+    ) -> i32 {
+        0
+    }
+    pub unsafe fn SetProcessWorkingSetSize(
+        _h: *mut std::ffi::c_void,
+        _min: usize,
+        _max: usize,
+    ) -> i32 {
+        0
+    }
+    pub unsafe fn AddClipboardFormatListener(_hwnd: HWND) -> i32 {
+        0
+    }
+    pub unsafe fn RemoveClipboardFormatListener(_hwnd: HWND) -> i32 {
+        0
+    }
+    pub unsafe fn OpenClipboard(_hwnd: HWND) -> i32 {
+        0
+    }
+    pub unsafe fn CloseClipboard() -> i32 {
+        0
+    }
+    pub unsafe fn GetClipboardData(_format: u32) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn SetClipboardData(
+        _format: u32,
+        _hMem: *mut std::ffi::c_void,
+    ) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn EmptyClipboard() -> i32 {
+        0
+    }
+    pub unsafe fn GlobalAlloc(_flags: u32, _bytes: usize) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn GlobalLock(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn GlobalUnlock(_h: *mut std::ffi::c_void) -> i32 {
+        0
+    }
+    pub unsafe fn GlobalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn BeginPaint(_hwnd: HWND, _lpPaint: *mut PAINTSTRUCT) -> usize {
+        0
+    }
+    pub unsafe fn EndPaint(_hwnd: HWND, _lpPaint: *const PAINTSTRUCT) -> i32 {
+        0
+    }
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -717,10 +978,21 @@ mod windows {
         pub dwFlags: u32,
     }
     pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
-    pub unsafe fn MonitorFromWindow(_hwnd: HWND, _dw_flags: u32) -> *mut std::ffi::c_void { std::ptr::null_mut() }
-    pub unsafe fn GetMonitorInfoW(_h_monitor: *mut std::ffi::c_void, _lpmi: *mut MONITORINFO) -> i32 { 0 }
-    pub unsafe fn GetDpiForWindow(_hwnd: HWND) -> u32 { 96 }
-    pub unsafe fn SetProcessDpiAwarenessContext(_value: *mut std::ffi::c_void) -> i32 { 0 }
+    pub unsafe fn MonitorFromWindow(_hwnd: HWND, _dw_flags: u32) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn GetMonitorInfoW(
+        _h_monitor: *mut std::ffi::c_void,
+        _lpmi: *mut MONITORINFO,
+    ) -> i32 {
+        0
+    }
+    pub unsafe fn GetDpiForWindow(_hwnd: HWND) -> u32 {
+        96
+    }
+    pub unsafe fn SetProcessDpiAwarenessContext(_value: *mut std::ffi::c_void) -> i32 {
+        0
+    }
 }
 
 pub use windows::*;

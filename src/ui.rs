@@ -1,16 +1,18 @@
-use std::thread;
-use std::time::Duration;
-use std::sync::atomic::{AtomicU32, Ordering};
 use crate::filter;
-use crate::state::{self, Mode, SafeHWND, lock_state, EDIT_HWND, LISTBOX_HWND, MAIN_HWND};
+use crate::state::{self, EDIT_HWND, LISTBOX_HWND, MAIN_HWND, Mode, SafeHWND, lock_state};
 use crate::util;
 use crate::win32;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
+use std::time::Duration;
 
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
 static EMPTY_WSTR: &[u16] = &[0u16];
 
 pub fn update_listbox_items() {
-    if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(_hwnd_listbox))) = (EDIT_HWND.get(), LISTBOX_HWND.get()) {
+    if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(_hwnd_listbox))) =
+        (EDIT_HWND.get(), LISTBOX_HWND.get())
+    {
         let len = unsafe { win32::GetWindowTextLengthW(*hwnd_edit) } as usize;
         let mut buf = vec![0u16; len + 1];
         unsafe { win32::GetWindowTextW(*hwnd_edit, buf.as_mut_ptr(), (len + 1) as i32) };
@@ -51,6 +53,7 @@ pub fn update_listbox_items() {
                 current_results: Vec::new(),
                 current_full_paths: Vec::new(),
                 last_clipboard_value: String::new(),
+                current_selection: String::new(),
                 last_active_window: None,
                 is_dark: false,
                 current_folder,
@@ -59,22 +62,28 @@ pub fn update_listbox_items() {
             };
 
             let dict = state::get_migemo_dict();
-            let (display_items, full_paths) = filter::filter_items(&query_text, &temp_state, dict.as_deref());
+            let (display_items, full_paths) =
+                filter::filter_items(&query_text, &temp_state, dict.as_deref());
 
             if FILTER_GEN.load(Ordering::SeqCst) != generation {
                 return; // Newer input arrived
             }
 
             let mut state_guard = lock_state();
-            if let Some(state) = &mut *state_guard {
-                if state.filter_generation == generation {
-                    state.current_results = display_items;
-                    state.current_full_paths = full_paths;
+            if let Some(state) = &mut *state_guard
+                && state.filter_generation == generation
+            {
+                state.current_results = display_items;
+                state.current_full_paths = full_paths;
 
-                    if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
-                        unsafe {
-                            win32::PostMessageW(*hwnd_main, crate::state::WM_FILTER_COMPLETE, generation as usize, 0);
-                        }
+                if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+                    unsafe {
+                        win32::PostMessageW(
+                            *hwnd_main,
+                            crate::state::WM_FILTER_COMPLETE,
+                            generation as usize,
+                            0,
+                        );
                     }
                 }
             }
@@ -85,7 +94,9 @@ pub fn update_listbox_items() {
 pub fn move_listbox_selection(dir: i32) {
     if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
         let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
-        let count = unsafe { win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0) } as isize;
+        let count = unsafe {
+            win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0)
+        } as isize;
         if count > 0 {
             let dir_isize = dir as isize;
             let next = if cur == win32::LB_ERR {
@@ -106,7 +117,7 @@ pub fn on_select() {
         if cur != win32::LB_ERR {
             let mut target_path = String::new();
             let mut mode = Mode::Snippet;
-            
+
             {
                 let state_guard = lock_state();
                 if let Some(state) = &*state_guard {
@@ -122,14 +133,16 @@ pub fn on_select() {
                     // Go up to parent folder
                     let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
-                        if let Some(pos) = state.current_folder.rfind('/') {
-                            state.current_folder = state.current_folder[..pos].to_string();
+                        let mut parts = util::split_path(&state.current_folder);
+                        if parts.len() > 1 {
+                            parts.pop();
+                            state.current_folder = util::join_path(&parts);
                         } else {
                             state.current_folder.clear();
                         }
                     }
                     std::mem::drop(state_guard);
-                    
+
                     if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
                         unsafe {
                             win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
@@ -147,7 +160,7 @@ pub fn on_select() {
                         state.current_folder = folder;
                     }
                     std::mem::drop(state_guard);
-                    
+
                     if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
                         unsafe {
                             win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
@@ -160,9 +173,18 @@ pub fn on_select() {
                 }
             }
 
-            let len = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETTEXTLEN, cur as usize, 0) } as usize;
+            let len = unsafe {
+                win32::SendMessageW(*hwnd_listbox, win32::LB_GETTEXTLEN, cur as usize, 0)
+            } as usize;
             let mut buf = vec![0u16; len + 1];
-            unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETTEXT, cur as usize, buf.as_mut_ptr() as win32::LPARAM) };
+            unsafe {
+                win32::SendMessageW(
+                    *hwnd_listbox,
+                    win32::LB_GETTEXT,
+                    cur as usize,
+                    buf.as_mut_ptr() as win32::LPARAM,
+                )
+            };
 
             let selected_text = String::from_utf16_lossy(&buf[..len]);
             state::log_debug(&format!("on_select selected text: {}", selected_text));
@@ -172,8 +194,10 @@ pub fn on_select() {
                 let mut state_guard = lock_state();
                 if let Some(state) = &mut *state_guard {
                     if state.mode == Mode::Snippet {
-                        if let Some((_, template)) = state.snippets.iter().find(|(name, _)| name == &target_path) {
-                            final_text = util::render_template(template, &state.last_clipboard_value);
+                        if let Some((_, template)) =
+                            state.snippets.iter().find(|(name, _)| name == &target_path)
+                        {
+                            final_text = util::render_template(template, &state.current_selection);
                         }
                     } else {
                         final_text = target_path.clone();
@@ -205,7 +229,7 @@ pub fn delete_selected_item() {
         if cur != win32::LB_ERR {
             let mut target_text = String::new();
             let mut is_history = false;
-            
+
             {
                 let state_guard = lock_state();
                 if let Some(state) = &*state_guard {
@@ -222,18 +246,29 @@ pub fn delete_selected_item() {
                     let history = std::sync::Arc::make_mut(&mut state.history);
                     if let Some(pos) = history.iter().position(|x| x == &target_text) {
                         history.remove(pos);
-                        util::save_history(history);
+                        if state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+                            util::save_history(history);
+                        }
                     }
                 }
                 std::mem::drop(state_guard);
-                
+
                 update_listbox_items();
-                
+
                 // Keep the selection at the same position or move it up if we deleted the last item
-                let count = unsafe { win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0) } as isize;
+                let count = unsafe {
+                    win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0)
+                } as isize;
                 if count > 0 {
                     let next_sel = std::cmp::min(cur, count - 1);
-                    unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, next_sel as usize, 0) };
+                    unsafe {
+                        win32::SendMessageW(
+                            *hwnd_listbox,
+                            win32::LB_SETCURSEL,
+                            next_sel as usize,
+                            0,
+                        )
+                    };
                 }
                 crate::wndproc::update_top_index();
             }
@@ -242,19 +277,29 @@ pub fn delete_selected_item() {
 }
 
 pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
-    state::log_debug(&format!("trigger_app called. Mode={:?}, active_hwnd={:?}", mode, active_hwnd));
+    state::log_debug(&format!(
+        "trigger_app called. Mode={:?}, active_hwnd={:?}",
+        mode, active_hwnd
+    ));
 
-    let is_dark = crate::darkmode::is_dark_mode();
+    let is_dark = crate::darkmode::is_dark_active();
+
+    let selection = util::get_selection_or_clipboard(active_hwnd);
 
     {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
             state.mode = mode;
             state.is_dark = is_dark;
+            state.current_selection = selection;
             if mode == Mode::Snippet {
                 state.snippets = std::sync::Arc::new(util::load_snippets());
             }
             state.visible = true;
+            state::LAST_SHOW_TIME.store(
+                unsafe { win32::GetTickCount() },
+                std::sync::atomic::Ordering::Relaxed,
+            );
 
             if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
                 if !active_hwnd.is_null() && active_hwnd != *hwnd_main {
@@ -269,8 +314,14 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         }
     }
 
-    if let (Some(SafeHWND(hwnd_main)), Some(SafeHWND(hwnd_edit))) = (MAIN_HWND.get(), EDIT_HWND.get()) {
-        let target_hwnd = if !active_hwnd.is_null() { active_hwnd } else { *hwnd_main };
+    if let (Some(SafeHWND(hwnd_main)), Some(SafeHWND(hwnd_edit))) =
+        (MAIN_HWND.get(), EDIT_HWND.get())
+    {
+        let target_hwnd = if !active_hwnd.is_null() {
+            active_hwnd
+        } else {
+            *hwnd_main
+        };
         let scale = if !target_hwnd.is_null() {
             let dpi = unsafe { win32::GetDpiForWindow(target_hwnd) };
             if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 }
@@ -279,18 +330,25 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             dpi as f32 / 96.0
         };
 
-        let w = (380.0 * scale) as i32; // Width with generous margins (scaled)
+        let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
+        let w = (base_width * scale) as i32; // Width with generous margins (scaled)
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
         let item_h = (26.0 * scale) as i32;
         let base_h = (52.0 * scale) as i32;
         let h = (max_rows as i32) * item_h + base_h;
 
-        let mut work_rect = win32::RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        let mut work_rect = win32::RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
         let mut got_monitor = false;
 
         if !target_hwnd.is_null() {
             unsafe {
-                let h_monitor = win32::MonitorFromWindow(target_hwnd, win32::MONITOR_DEFAULTTONEAREST);
+                let h_monitor =
+                    win32::MonitorFromWindow(target_hwnd, win32::MONITOR_DEFAULTTONEAREST);
                 if !h_monitor.is_null() {
                     let mut mi: win32::MONITORINFO = std::mem::zeroed();
                     mi.cbSize = std::mem::size_of::<win32::MONITORINFO>() as u32;
@@ -305,7 +363,12 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         if !got_monitor {
             let monitor_w = unsafe { win32::GetSystemMetrics(0) };
             let monitor_h = unsafe { win32::GetSystemMetrics(1) };
-            work_rect = win32::RECT { left: 0, top: 0, right: monitor_w, bottom: monitor_h };
+            work_rect = win32::RECT {
+                left: 0,
+                top: 0,
+                right: monitor_w,
+                bottom: monitor_h,
+            };
         }
 
         let (mut x, mut y) = (
@@ -321,13 +384,20 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
 
             if gui_ok && !gui.hwndCaret.is_null() {
                 // 1. Standard Win32 caret API
-                let mut pt = win32::POINT { x: gui.rcCaret.left, y: gui.rcCaret.bottom };
+                let mut pt = win32::POINT {
+                    x: gui.rcCaret.left,
+                    y: gui.rcCaret.bottom,
+                };
                 unsafe { win32::ClientToScreen(gui.hwndCaret, &mut pt) };
                 x = pt.x;
                 y = pt.y + (4.0 * scale) as i32;
             } else {
                 // 2. MSAA IAccessible fallback (works for some apps that don't use Win32 caret)
-                let focus_hwnd = if gui_ok && !gui.hwndFocus.is_null() { gui.hwndFocus } else { active_hwnd };
+                let focus_hwnd = if gui_ok && !gui.hwndFocus.is_null() {
+                    gui.hwndFocus
+                } else {
+                    active_hwnd
+                };
                 if let Some((cx, cy, _cw, ch)) = win32::get_caret_rect_accessible(focus_hwnd) {
                     x = cx;
                     y = cy + ch + (4.0 * scale) as i32;
@@ -341,10 +411,18 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             }
         }
 
-        if x + w > work_rect.right { x = work_rect.right - w; }
-        if y + h > work_rect.bottom { y = work_rect.bottom - h; }
-        if x < work_rect.left { x = work_rect.left; }
-        if y < work_rect.top { y = work_rect.top; }
+        if x + w > work_rect.right {
+            x = work_rect.right - w;
+        }
+        if y + h > work_rect.bottom {
+            y = work_rect.bottom - h;
+        }
+        if x < work_rect.left {
+            x = work_rect.left;
+        }
+        if y < work_rect.top {
+            y = work_rect.top;
+        }
 
         unsafe {
             win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
@@ -364,33 +442,41 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             };
             std::mem::drop(state_guard);
 
-            if let Some(items) = display_items_for_listbox {
-                if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                    win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
-                    win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
-                    for item in &items {
-                        let item_w = util::to_wstring(item);
-                        win32::SendMessageW(*hwnd_listbox, win32::LB_ADDSTRING, 0, item_w.as_ptr() as win32::LPARAM);
-                    }
-                    if !items.is_empty() {
-                        win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
-                    }
-                    win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
-                    win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
+            if let Some(items) = display_items_for_listbox
+                && let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get()
+            {
+                win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
+                win32::SendMessageW(*hwnd_listbox, win32::LB_RESETCONTENT, 0, 0);
+                for item in &items {
+                    let item_w = util::to_wstring(item);
+                    win32::SendMessageW(
+                        *hwnd_listbox,
+                        win32::LB_ADDSTRING,
+                        0,
+                        item_w.as_ptr() as win32::LPARAM,
+                    );
                 }
+                if !items.is_empty() {
+                    win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
+                }
+                win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
+                win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
             }
 
-            win32::SetWindowPos(*hwnd_main, std::ptr::null_mut(), x, y, w, h, 0x0040 /* SWP_SHOWWINDOW */);
+            win32::SetWindowPos(
+                *hwnd_main,
+                std::ptr::null_mut(),
+                x,
+                y,
+                w,
+                h,
+                0x0040, /* SWP_SHOWWINDOW */
+            );
             crate::wndproc::update_theme_resources(*hwnd_main, is_dark);
 
             let foreground = win32::GetForegroundWindow();
             if !foreground.is_null() && foreground != *hwnd_main {
-                let cur_thread = win32::GetCurrentThreadId();
-                let fg_thread = win32::GetWindowThreadProcessId(foreground, std::ptr::null_mut());
-                
-                win32::AttachThreadInput(cur_thread, fg_thread, 1);
                 win32::SetForegroundWindow(*hwnd_main);
-                win32::AttachThreadInput(cur_thread, fg_thread, 0);
 
                 let foreground_now = win32::GetForegroundWindow();
                 if foreground_now != *hwnd_main {
@@ -405,8 +491,8 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                                     dw_flags: 0,
                                     time: 0,
                                     dw_extra_info: 0,
-                                }
-                            }
+                                },
+                            },
                         },
                         win32::INPUT {
                             r#type: win32::INPUT_KEYBOARD,
@@ -417,11 +503,15 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                                     dw_flags: win32::KEYEVENTF_KEYUP,
                                     time: 0,
                                     dw_extra_info: 0,
-                                }
-                            }
-                        }
+                                },
+                            },
+                        },
                     ];
-                    win32::SendInput(2, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32);
+                    win32::SendInput(
+                        2,
+                        inputs.as_ptr(),
+                        std::mem::size_of::<win32::INPUT>() as i32,
+                    );
                     win32::SetForegroundWindow(*hwnd_main);
                 }
             } else {
@@ -447,12 +537,12 @@ pub fn hide_window() {
             state.current_results.clear();
             state.current_full_paths.clear();
             state.snippets = std::sync::Arc::new(Vec::new());
-            
+
             // Capture and clear the last active window
             last_active = state.last_active_window.take();
         }
     }
-    
+
     // Clear Migemo dictionary from memory
     state::clear_migemo_dict();
 
@@ -463,7 +553,11 @@ pub fn hide_window() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };
     }
 
-
+    // Trim the working set to free up physical memory immediately
+    unsafe {
+        let h_process = win32::GetCurrentProcess();
+        win32::SetProcessWorkingSetSize(h_process, !0, !0);
+    }
 }
 
 pub fn restore_focus(last_active_window: Option<usize>) {
@@ -482,36 +576,58 @@ pub fn simulate_paste() {
             r#type: win32::INPUT_KEYBOARD,
             u: win32::INPUT_union {
                 ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_CONTROL, w_scan: 0, dw_flags: 0, time: 0, dw_extra_info: 0,
-                }
-            }
+                    w_vk: win32::VK_CONTROL,
+                    w_scan: 0,
+                    dw_flags: 0,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+            },
         },
         win32::INPUT {
             r#type: win32::INPUT_KEYBOARD,
             u: win32::INPUT_union {
                 ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_V, w_scan: 0, dw_flags: 0, time: 0, dw_extra_info: 0,
-                }
-            }
+                    w_vk: win32::VK_V,
+                    w_scan: 0,
+                    dw_flags: 0,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+            },
         },
         win32::INPUT {
             r#type: win32::INPUT_KEYBOARD,
             u: win32::INPUT_union {
                 ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_V, w_scan: 0, dw_flags: win32::KEYEVENTF_KEYUP, time: 0, dw_extra_info: 0,
-                }
-            }
+                    w_vk: win32::VK_V,
+                    w_scan: 0,
+                    dw_flags: win32::KEYEVENTF_KEYUP,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+            },
         },
         win32::INPUT {
             r#type: win32::INPUT_KEYBOARD,
             u: win32::INPUT_union {
                 ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_CONTROL, w_scan: 0, dw_flags: win32::KEYEVENTF_KEYUP, time: 0, dw_extra_info: 0,
-                }
-            }
-        }
+                    w_vk: win32::VK_CONTROL,
+                    w_scan: 0,
+                    dw_flags: win32::KEYEVENTF_KEYUP,
+                    time: 0,
+                    dw_extra_info: 0,
+                },
+            },
+        },
     ];
-    unsafe { win32::SendInput(4, inputs.as_ptr(), std::mem::size_of::<win32::INPUT>() as i32) };
+    unsafe {
+        win32::SendInput(
+            4,
+            inputs.as_ptr(),
+            std::mem::size_of::<win32::INPUT>() as i32,
+        )
+    };
 }
 
 pub fn show_tray_menu(hwnd: win32::HWND) {
@@ -521,10 +637,45 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
     let menu = unsafe { win32::CreatePopupMenu() };
     unsafe {
         // Utility actions
-        win32::AppendMenuW(menu, 0, 1004, util::to_wstring("設定ファイルを開く").as_ptr());
-        win32::AppendMenuW(menu, 0, 1005, util::to_wstring("スニペットフォルダを開く").as_ptr());
-        win32::AppendMenuW(menu, 0, 1006, util::to_wstring("スニペットを再読み込み").as_ptr());
-        win32::AppendMenuW(menu, 0, 1007, util::to_wstring("このアプリについて").as_ptr());
+        win32::AppendMenuW(
+            menu,
+            0,
+            1004,
+            util::to_wstring("設定ファイルを開く").as_ptr(),
+        );
+        win32::AppendMenuW(
+            menu,
+            0,
+            1005,
+            util::to_wstring("スニペットフォルダを開く").as_ptr(),
+        );
+        win32::AppendMenuW(
+            menu,
+            0,
+            1006,
+            util::to_wstring("スニペットを再読み込み").as_ptr(),
+        );
+        win32::AppendMenuW(
+            menu,
+            0,
+            1007,
+            util::to_wstring("このアプリについて").as_ptr(),
+        );
+
+        // Checkbox item for saving history to file
+        let is_save = state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed);
+        let check_flag = if is_save {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
+        win32::AppendMenuW(
+            menu,
+            check_flag,
+            1008,
+            util::to_wstring("履歴をファイルに保存する").as_ptr(),
+        );
+
         win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
 
         // Exit
@@ -534,8 +685,13 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
 
     let cmd = unsafe {
         win32::TrackPopupMenu(
-            menu, win32::TPM_RETURNCMD | win32::TPM_LEFTALIGN,
-            pt.x, pt.y, 0, hwnd, std::ptr::null(),
+            menu,
+            win32::TPM_RETURNCMD | win32::TPM_LEFTALIGN,
+            pt.x,
+            pt.y,
+            0,
+            hwnd,
+            std::ptr::null(),
         )
     };
     unsafe { win32::DestroyMenu(menu) };
@@ -581,7 +737,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             ・Ctrlキーを2回連打: クリップボード履歴ウィンドウを表示\n\n\
             ・候補選択: ↑ / ↓ または Ctrl+P / Ctrl+N\n\
             ・自動ペースト: Enterキー\n\
-            ・閉じる: Escキー または ウィンドウ外をクリック"
+            ・閉じる: Escキー または ウィンドウ外をクリック",
         );
         unsafe {
             win32::MessageBoxW(
@@ -591,20 +747,47 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                 win32::MB_OK | win32::MB_ICONINFORMATION,
             );
         }
+    } else if cmd == 1008 {
+        let new_val = !state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed);
+        state::SAVE_HISTORY_TO_FILE.store(new_val, std::sync::atomic::Ordering::Relaxed);
+
+        // Update config.toml
+        if let Some(config) = state::CONFIG.get() {
+            let mut new_config = config.clone();
+            new_config.save_history = new_val;
+            new_config.save();
+        }
+
+        // If toggled to ON, immediately save current in-memory history to disk
+        if new_val {
+            let history_to_save = {
+                let state_guard = lock_state();
+                state_guard
+                    .as_ref()
+                    .map(|s| std::sync::Arc::clone(&s.history))
+            };
+            if let Some(history_arc) = history_to_save {
+                util::save_history(&history_arc);
+            }
+        }
     } else if cmd == 1003 {
         unsafe { win32::PostQuitMessage(0) };
     }
 }
 
 pub fn update_search_cue_banner() {
-    if let (Some(SafeHWND(hwnd_edit)), Some(state_guard)) = (EDIT_HWND.get(), lock_state().as_ref()) {
+    if let (Some(SafeHWND(hwnd_edit)), Some(state_guard)) = (EDIT_HWND.get(), lock_state().as_ref())
+    {
         let cue_holder;
         let cue_text = match state_guard.mode {
             Mode::Snippet => {
                 if state_guard.current_folder.is_empty() {
                     "スニペット (Root) - 検索 (Migemo)..."
                 } else {
-                    cue_holder = format!("スニペット [{}] - 検索 (Migemo)...", state_guard.current_folder);
+                    cue_holder = format!(
+                        "スニペット [{}] - 検索 (Migemo)...",
+                        state_guard.current_folder
+                    );
                     &cue_holder
                 }
             }
@@ -612,7 +795,37 @@ pub fn update_search_cue_banner() {
         };
         let cue_w = util::to_wstring(cue_text);
         unsafe {
-            win32::SendMessageW(*hwnd_edit, 0x1501 /* EM_SETCUEBANNER */, 1, cue_w.as_ptr() as win32::LPARAM);
+            win32::SendMessageW(
+                *hwnd_edit,
+                0x1501, /* EM_SETCUEBANNER */
+                1,
+                cue_w.as_ptr() as win32::LPARAM,
+            );
         }
+    }
+}
+
+pub fn show_notification(title: &str, message: &str, is_error: bool) {
+    if let Some(SafeHWND(hwnd)) = MAIN_HWND.get() {
+        let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+        nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+        nid.hWnd = *hwnd;
+        nid.uID = 1;
+        nid.uFlags = win32::NIF_INFO;
+
+        let title_w = util::to_wstring(title);
+        let title_len = std::cmp::min(title_w.len(), 63);
+        nid.szInfoTitle[..title_len].copy_from_slice(&title_w[..title_len]);
+
+        let msg_w = util::to_wstring(message);
+        let msg_len = std::cmp::min(msg_w.len(), 255);
+        nid.szInfo[..msg_len].copy_from_slice(&msg_w[..msg_len]);
+
+        nid.dwInfoFlags = if is_error {
+            win32::NIIF_ERROR
+        } else {
+            win32::NIIF_INFO
+        };
+        unsafe { win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid) };
     }
 }

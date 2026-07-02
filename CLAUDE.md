@@ -1,3 +1,34 @@
+# CLAUDE.md - Clipper Development Guide
+
+## Build & Test Commands
+
+- Build debug binary: `rtk cargo build`
+- Build optimized release binary: `rtk cargo build --release`
+- Run all unit tests: `rtk cargo test`
+- Code formatting check: `rtk cargo fmt -- --check`
+- Code formatting fix: `rtk cargo fmt`
+- Static analysis & linting: `rtk cargo clippy`
+- Clean build artifacts: `rtk cargo clean`
+
+## Code & UI Guidelines
+
+1. **Win32 & GDI Architecture**:
+   - The application relies on native Win32 API calls (declared in [src/win32.rs](file:///D:/Develop/Clipper/src/win32.rs)).
+   - Draw UI elements inside the listbox owner-draw `WM_DRAWITEM` handler to ensure optimal rendering performance.
+   - Properly release all allocated GDI objects (brushes, fonts, etc.) using `DeleteObject` when redrawing or on exit to prevent resource leaks.
+
+2. **Memory Footprint**:
+   - Clipper is highly optimized for minimal background memory usage (~580 KB after trim).
+   - On window deactivation/hide, always release the Migemo compact dictionary (`state::clear_migemo_dict()`) and call `SetProcessWorkingSetSize(GetCurrentProcess(), -1, -1)` to trim the working set to zero.
+
+3. **Settings & Backward Compatibility**:
+   - When introducing new configuration fields to `config.toml`, always add default fallbacks using `#[serde(default = "...")]` in [src/config.rs](file:///D:/Develop/Clipper/src/config.rs) to maintain backward compatibility with older config files.
+
+4. **Hotkeys**:
+   - Global keyboard hooks are defined in [src/hook.rs](file:///D:/Develop/Clipper/src/hook.rs). Hotkey double-press detection interval is configurable via `double_tap_ms`.
+
+---
+
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
 

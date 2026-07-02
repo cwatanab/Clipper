@@ -11,10 +11,14 @@ use crate::state::{AppState, Mode};
 static ROMAJI_PROCESSOR: OnceLock<RomajiProcessor> = OnceLock::new();
 
 fn get_romaji_processor() -> &'static RomajiProcessor {
-    ROMAJI_PROCESSOR.get_or_init(|| RomajiProcessor::new())
+    ROMAJI_PROCESSOR.get_or_init(RomajiProcessor::new)
 }
 
-pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&CompactDictionary>) -> (Vec<String>, Vec<String>) {
+pub fn filter_items(
+    query_text: &str,
+    state: &AppState,
+    dict_opt: Option<&CompactDictionary>,
+) -> (Vec<String>, Vec<String>) {
     if query_text.is_empty() {
         return match state.mode {
             Mode::Snippet => {
@@ -28,59 +32,55 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
                     full_paths.push("..".to_string());
                 }
 
+                let cur_folder_parts = if cur_folder.is_empty() {
+                    Vec::new()
+                } else {
+                    crate::util::split_path(cur_folder)
+                };
+
                 let mut folder_names = std::collections::HashSet::new();
                 let mut local_snippets = Vec::new();
 
                 for (name, _) in state.snippets.iter() {
-                    if cur_folder.is_empty() {
-                        if let Some(pos) = name.find('/') {
-                            let folder = &name[..pos];
-                            folder_names.insert(folder);
-                        } else {
-                            local_snippets.push(name.as_str());
-                        }
-                    } else {
-                        let prefix = format!("{}/", cur_folder);
-                        if name.starts_with(&prefix) {
-                            let sub_name = &name[prefix.len()..];
-                            if let Some(pos) = sub_name.find('/') {
-                                let folder = &sub_name[..pos];
-                                folder_names.insert(folder);
-                            } else {
-                                local_snippets.push(name.as_str());
-                            }
+                    let snippet_parts = crate::util::split_path(name);
+                    if snippet_parts.starts_with(&cur_folder_parts) {
+                        let n = cur_folder_parts.len();
+                        let m = snippet_parts.len();
+                        if m == n + 1 {
+                            local_snippets.push((name.as_str(), snippet_parts[n].clone()));
+                        } else if m > n + 1 {
+                            folder_names.insert(snippet_parts[n].clone());
                         }
                     }
                 }
 
                 // Add sorted subdirectories
-                let mut folders: Vec<&str> = folder_names.into_iter().collect();
+                let mut folders: Vec<String> = folder_names.into_iter().collect();
                 folders.sort();
                 for f in folders {
                     display_items.push(format!("[DIR] {}", f));
                     if cur_folder.is_empty() {
-                        full_paths.push(format!("dir:{}", f));
+                        let escaped = f.replace('/', "\\/");
+                        full_paths.push(format!("dir:{}", escaped));
                     } else {
-                        full_paths.push(format!("dir:{}/{}", cur_folder, f));
+                        let escaped = f.replace('/', "\\/");
+                        full_paths.push(format!("dir:{}/{}", cur_folder, escaped));
                     }
                 }
 
                 // Add sorted snippets
-                local_snippets.sort();
-                for s in local_snippets {
-                    let display_name = if let Some(pos) = s.rfind('/') {
-                        &s[pos + 1..]
-                    } else {
-                        s
-                    };
+                local_snippets.sort_by(|a, b| a.1.cmp(&b.1));
+                for (full_path, display_name) in local_snippets {
                     display_items.push(format!("[SNIP] {}", display_name));
-                    full_paths.push(s.to_string());
+                    full_paths.push(full_path.to_string());
                 }
 
                 (display_items, full_paths)
             }
             Mode::History => {
-                let display: Vec<String> = state.history.iter()
+                let display: Vec<String> = state
+                    .history
+                    .iter()
                     .map(|s| clean_history_item(s))
                     .collect();
                 let full: Vec<String> = state.history.iter().cloned().collect();
@@ -109,13 +109,16 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
     if check_hira {
         regex_parts.push(regex::escape(&hiragana));
 
-        let katakana: String = hiragana.chars().map(|c| {
-            if ('ぁ'..='ん').contains(&c) {
-                char::from_u32(c as u32 + 0x60).unwrap_or(c)
-            } else {
-                c
-            }
-        }).collect();
+        let katakana: String = hiragana
+            .chars()
+            .map(|c| {
+                if ('ぁ'..='ん').contains(&c) {
+                    char::from_u32(c as u32 + 0x60).unwrap_or(c)
+                } else {
+                    c
+                }
+            })
+            .collect();
         if !katakana.is_empty() && katakana != hiragana {
             regex_parts.push(regex::escape(&katakana));
         }
@@ -146,27 +149,28 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
     match state.mode {
         Mode::Snippet => {
             let cur_folder = &state.current_folder;
+            let cur_folder_parts = if cur_folder.is_empty() {
+                Vec::new()
+            } else {
+                crate::util::split_path(cur_folder)
+            };
+
             let mut folder_names = std::collections::HashSet::new();
             let mut local_snippets = Vec::new();
 
             for (name, content) in state.snippets.iter() {
-                if cur_folder.is_empty() {
-                    if let Some(pos) = name.find('/') {
-                        let folder = &name[..pos];
-                        folder_names.insert(folder);
-                    } else {
-                        local_snippets.push((name.as_str(), content.as_str()));
-                    }
-                } else {
-                    let prefix = format!("{}/", cur_folder);
-                    if name.starts_with(&prefix) {
-                        let sub_name = &name[prefix.len()..];
-                        if let Some(pos) = sub_name.find('/') {
-                            let folder = &sub_name[..pos];
-                            folder_names.insert(folder);
-                        } else {
-                            local_snippets.push((name.as_str(), content.as_str()));
-                        }
+                let snippet_parts = crate::util::split_path(name);
+                if snippet_parts.starts_with(&cur_folder_parts) {
+                    let n = cur_folder_parts.len();
+                    let m = snippet_parts.len();
+                    if m == n + 1 {
+                        local_snippets.push((
+                            name.as_str(),
+                            snippet_parts[n].clone(),
+                            content.as_str(),
+                        ));
+                    } else if m > n + 1 {
+                        folder_names.insert(snippet_parts[n].clone());
                     }
                 }
             }
@@ -178,7 +182,7 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
 
             let mut folders_matches = Vec::new();
             for f in folder_names {
-                if matches_text(f) {
+                if matches_text(&f) {
                     folders_matches.push(f);
                 }
             }
@@ -186,32 +190,24 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
             for f in folders_matches {
                 display_items.push(format!("[DIR] {}", f));
                 if cur_folder.is_empty() {
-                    full_paths.push(format!("dir:{}", f));
+                    let escaped = f.replace('/', "\\/");
+                    full_paths.push(format!("dir:{}", escaped));
                 } else {
-                    full_paths.push(format!("dir:{}/{}", cur_folder, f));
+                    let escaped = f.replace('/', "\\/");
+                    full_paths.push(format!("dir:{}/{}", cur_folder, escaped));
                 }
             }
 
             let mut snippets_matches = Vec::new();
-            for (name, content) in local_snippets {
-                let display_name = if let Some(pos) = name.rfind('/') {
-                    &name[pos + 1..]
-                } else {
-                    name
-                };
-                if matches_text(display_name) || matches_text(name) || matches_text(content) {
-                    snippets_matches.push(name);
+            for (name, display_name, content) in local_snippets {
+                if matches_text(&display_name) || matches_text(name) || matches_text(content) {
+                    snippets_matches.push((name, display_name));
                 }
             }
-            snippets_matches.sort();
-            for s in snippets_matches {
-                let display_name = if let Some(pos) = s.rfind('/') {
-                    &s[pos + 1..]
-                } else {
-                    s
-                };
+            snippets_matches.sort_by(|a, b| a.1.cmp(&b.1));
+            for (full_path, display_name) in snippets_matches {
                 display_items.push(format!("[SNIP] {}", display_name));
-                full_paths.push(s.to_string());
+                full_paths.push(full_path.to_string());
             }
         }
         Mode::History => {
@@ -232,7 +228,10 @@ pub fn filter_items(query_text: &str, state: &AppState, dict_opt: Option<&Compac
 }
 
 fn clean_history_item(s: &str) -> String {
-    let has_control = s.as_bytes().iter().any(|&b| b == b'\r' || b == b'\n' || b == b'\t');
+    let has_control = s
+        .as_bytes()
+        .iter()
+        .any(|&b| b == b'\r' || b == b'\n' || b == b'\t');
     if !has_control {
         let mut clean = String::with_capacity("[HIST] ".len() + s.len());
         clean.push_str("[HIST] ");

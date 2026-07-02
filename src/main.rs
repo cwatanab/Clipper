@@ -12,7 +12,7 @@ mod win32;
 mod wndproc;
 
 use crate::hook::keyboard_hook_proc;
-use crate::state::{Mode, SafeHWND, lock_state, MAIN_HWND};
+use crate::state::{MAIN_HWND, Mode, SafeHWND, lock_state};
 use crate::wndproc::window_proc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let config = config::Config::load();
+    state::SAVE_HISTORY_TO_FILE.store(config.save_history, std::sync::atomic::Ordering::Relaxed);
     let _ = state::CONFIG.set(config);
 
     darkmode::apply();
@@ -48,8 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         current_results: Vec::new(),
         current_full_paths: Vec::new(),
         last_clipboard_value: String::new(),
+        current_selection: String::new(),
         last_active_window: None,
-        is_dark: darkmode::is_dark_mode(),
+        is_dark: darkmode::is_dark_active(),
         current_folder: String::new(),
         top_index: 0,
         filter_generation: 0,
@@ -64,7 +66,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         let hinstance = win32::GetModuleHandleW(std::ptr::null());
         let class_name = util::to_wstring("ClipperWindowClass");
-        let app_icon = win32::LoadIconW(hinstance, 1 as *const u16);
+        let is_sys_dark = darkmode::is_system_dark_mode();
+        let icon_id = if is_sys_dark { 2 } else { 1 };
+        let app_icon = win32::LoadIconW(hinstance, icon_id as *const u16);
 
         let wnd_class = win32::WNDCLASSW {
             style: win32::CS_HREDRAW | win32::CS_VREDRAW,
@@ -83,13 +87,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
         let initial_h = (max_rows as i32) * 26 + 52;
+        let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
 
         let hwnd = win32::CreateWindowExW(
             win32::WS_EX_TOPMOST | win32::WS_EX_TOOLWINDOW,
             class_name.as_ptr(),
             util::to_wstring("Clipper").as_ptr(),
             win32::WS_POPUP, // Borderless, we will draw the border in WM_PAINT
-            0, 0, 380, initial_h,
+            0,
+            0,
+            base_width as i32,
+            initial_h,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             hinstance,
@@ -131,15 +139,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state::log_debug("SetWindowsHookExW registered successfully on main thread.");
         }
 
-
-
-
-
         let mut msg = std::mem::zeroed();
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             let is_visible = {
                 let state_guard = lock_state();
-                state_guard.as_ref().map_or(false, |s| s.visible)
+                state_guard.as_ref().is_some_and(|s| s.visible)
             };
 
             if is_visible && msg.message == win32::WM_KEYDOWN {

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicU32;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 use crate::win32;
 
@@ -27,6 +27,7 @@ pub struct AppState {
     pub current_results: Vec<String>,
     pub current_full_paths: Vec<String>,
     pub last_clipboard_value: String,
+    pub current_selection: String,
     pub last_active_window: Option<usize>,
     pub is_dark: bool,
     pub current_folder: String,
@@ -44,7 +45,8 @@ pub struct SafeHHOOK(pub win32::HHOOK);
 unsafe impl Send for SafeHHOOK {}
 unsafe impl Sync for SafeHHOOK {}
 
-pub type EditWndProc = unsafe extern "system" fn(win32::HWND, u32, win32::WPARAM, win32::LPARAM) -> win32::LRESULT;
+pub type EditWndProc =
+    unsafe extern "system" fn(win32::HWND, u32, win32::WPARAM, win32::LPARAM) -> win32::LRESULT;
 pub struct SafeWndProc(pub EditWndProc);
 unsafe impl Send for SafeWndProc {}
 unsafe impl Sync for SafeWndProc {}
@@ -61,6 +63,8 @@ unsafe impl Sync for SafeHFONT {}
 
 pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
+pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
+pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
 /// Poison-safe lock helper for APP_STATE.
@@ -83,10 +87,10 @@ pub static MIGEMO_DICT: Mutex<Option<Arc<CompactDictionary>>> = Mutex::new(None)
 
 pub fn get_migemo_dict() -> Option<Arc<CompactDictionary>> {
     let mut guard = MIGEMO_DICT.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.is_none() {
-        if let Some(dict) = crate::dict::load() {
-            *guard = Some(Arc::new(dict));
-        }
+    if guard.is_none()
+        && let Some(dict) = crate::dict::load()
+    {
+        *guard = Some(Arc::new(dict));
     }
     guard.clone()
 }
