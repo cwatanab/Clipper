@@ -3,7 +3,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://microsoft.com/windows)
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v0.1.7-blue)](https://github.com/cwatanab/Clipper/releases/tag/v0.1.7)
+[![Release](https://img.shields.io/badge/release-v0.1.8-blue)](https://github.com/cwatanab/Clipper/releases/tag/v0.1.8)
 
 **Clipper** は、Windows環境のためにゼロから極限までチューニングされた、超高速・超軽量のスニペット＆クリップボード履歴管理ツールです。
 
@@ -48,7 +48,7 @@
 
 ## 🚀 インストール & はじめ方
 
-1. **[clipper-v0.1.7.zip](https://github.com/cwatanab/Clipper/releases/download/v0.1.7/clipper-v0.1.7.zip) をダウンロード**し、任意の場所に解凍します。
+1. **[clipper-v0.1.8.zip](https://github.com/cwatanab/Clipper/releases/download/v0.1.8/clipper-v0.1.8.zip) をダウンロード**し、任意の場所に解凍します。
 2. 解凍された `clipper.exe` を起動します。タスクトレイに 📋 アイコンが常駐します。
 3. `Shift` を2回、または `Ctrl` を2回連打して検索ウィンドウが表示されれば起動完了です！
 4. スタートアップ（自動起動）に登録したい場合は、ショートカットを Windows の `Startup` フォルダに配置してください。
@@ -66,9 +66,11 @@ font_name = "Meiryo UI" # 検索窓やリストの表示フォント
 max_rows = 15           # ウィンドウに表示する最大候補数
 max_history = 1000      # クリップボード履歴の最大保持件数
 width = 380.0           # 検索ウィンドウの基準幅（DPIスケーリング前のピクセル値）
-double_tap_ms = 500     # ホットキー（Shift/Ctrl）を2回連打して起動する際の間隔（ミリ秒）
+double_tap_ms = 500     # ホットキーを2回連打して起動する際の間隔（ミリ秒）
 save_history = true     # クリップボード履歴を暗号化ファイルに保存するかどうか (true/false)
 theme_mode = "auto"     # カラーテーマ ("auto": システム同期, "dark": ダークモード固定, "light": ライトモード固定)
+snippet_key = "left_shift"  # 定型文呼び出しホットキー ("left_shift", "right_shift", "shift", "left_ctrl", "right_ctrl", "ctrl", "left_alt", "right_alt", "alt", "none")
+history_key = "left_ctrl"   # 履歴呼び出しホットキー ("left_shift", "right_shift", "shift", "left_ctrl", "right_ctrl", "ctrl", "left_alt", "right_alt", "alt", "none")
 ```
 
 ### 2. カスタムスニペットの作成と管理 (`%APPDATA%\Clipper\snippets\`)

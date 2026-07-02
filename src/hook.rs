@@ -7,6 +7,22 @@ use crate::state::{
 use crate::win32;
 
 #[cfg(target_os = "windows")]
+fn matches_key(vk: u16, key_name: &str) -> bool {
+    match key_name.to_lowercase().as_str() {
+        "shift" => vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT,
+        "lshift" | "left_shift" => vk == win32::VK_LSHIFT,
+        "rshift" | "right_shift" => vk == win32::VK_RSHIFT,
+        "ctrl" | "control" => vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL,
+        "lctrl" | "left_ctrl" | "lcontrol" | "left_control" => vk == win32::VK_LCONTROL,
+        "rctrl" | "right_ctrl" | "rcontrol" | "right_control" => vk == win32::VK_RCONTROL,
+        "alt" | "menu" => vk == win32::VK_MENU || vk == win32::VK_LMENU || vk == win32::VK_RMENU,
+        "lalt" | "left_alt" | "lmenu" | "left_menu" => vk == win32::VK_LMENU,
+        "ralt" | "right_alt" | "rmenu" | "right_menu" => vk == win32::VK_RMENU,
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub unsafe extern "system" fn keyboard_hook_proc(
     code: i32,
     wparam: win32::WPARAM,
@@ -21,31 +37,28 @@ pub unsafe extern "system" fn keyboard_hook_proc(
             kbd.time
         };
 
+        let (snippet_key, history_key, double_tap_ms) = crate::state::CONFIG.get()
+            .map(|c| (c.snippet_key.clone(), c.history_key.clone(), c.double_tap_ms))
+            .unwrap_or_else(|| ("left_shift".to_string(), "left_ctrl".to_string(), 500));
+
         if wparam == win32::WM_KEYUP as win32::WPARAM
             || wparam == win32::WM_SYSKEYUP as win32::WPARAM
         {
-            let is_shift =
-                vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT;
-            let is_ctrl =
-                vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL;
+            let is_snippet = matches_key(vk, &snippet_key);
+            let is_history = matches_key(vk, &history_key);
 
-            if is_shift || is_ctrl {
-                let mapped_vk = if is_shift {
-                    win32::VK_SHIFT as u32
-                } else {
-                    win32::VK_CONTROL as u32
-                };
+            if is_snippet || is_history {
+                let mapped_vk = if is_snippet { 1u32 } else { 2u32 };
                 let prev_vk = LAST_KEY_VK.load(Ordering::Relaxed);
                 let prev_time = LAST_KEY_TIME.load(Ordering::Relaxed);
 
-                let double_tap_ms = crate::state::CONFIG.get().map_or(500, |c| c.double_tap_ms);
                 if prev_vk == mapped_vk && now_time.wrapping_sub(prev_time) < double_tap_ms {
                     let main_hwnd_val = MAIN_HWND.get();
                     if let Some(SafeHWND(main_hwnd)) = main_hwnd_val
                         && !(*main_hwnd).is_null()
                     {
                         let active_hwnd = unsafe { win32::GetForegroundWindow() };
-                        let msg = if mapped_vk == win32::VK_SHIFT as u32 {
+                        let msg = if mapped_vk == 1 {
                             WM_TRIGGER_SNIPPET
                         } else {
                             WM_TRIGGER_HISTORY
@@ -65,13 +78,9 @@ pub unsafe extern "system" fn keyboard_hook_proc(
         } else if wparam == win32::WM_KEYDOWN as win32::WPARAM
             || wparam == win32::WM_SYSKEYDOWN as win32::WPARAM
         {
-            let is_modifier = vk == win32::VK_SHIFT
-                || vk == win32::VK_LSHIFT
-                || vk == win32::VK_RSHIFT
-                || vk == win32::VK_CONTROL
-                || vk == win32::VK_LCONTROL
-                || vk == win32::VK_RCONTROL;
-            if !is_modifier {
+            let is_snippet = matches_key(vk, &snippet_key);
+            let is_history = matches_key(vk, &history_key);
+            if !is_snippet && !is_history {
                 LAST_KEY_VK.store(0, Ordering::Relaxed);
             }
         }

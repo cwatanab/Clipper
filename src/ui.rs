@@ -284,7 +284,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
 
     let is_dark = crate::darkmode::is_dark_active();
 
-    let selection = util::get_selection_or_clipboard(active_hwnd);
+    let selection = util::get_clipboard_text().unwrap_or_default();
 
     {
         let mut state_guard = lock_state();

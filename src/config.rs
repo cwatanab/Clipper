@@ -30,6 +30,10 @@ pub struct Config {
     pub save_history: bool,
     #[serde(default = "default_theme_mode")]
     pub theme_mode: ThemeMode,
+    #[serde(default = "default_snippet_key")]
+    pub snippet_key: String,
+    #[serde(default = "default_history_key")]
+    pub history_key: String,
 }
 
 fn default_max_history() -> usize {
@@ -52,6 +56,14 @@ fn default_theme_mode() -> ThemeMode {
     ThemeMode::Auto
 }
 
+fn default_snippet_key() -> String {
+    "left_shift".to_string()
+}
+
+fn default_history_key() -> String {
+    "left_ctrl".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -62,6 +74,8 @@ impl Default for Config {
             double_tap_ms: 500,
             save_history: true,
             theme_mode: ThemeMode::Auto,
+            snippet_key: "left_shift".to_string(),
+            history_key: "left_ctrl".to_string(),
         }
     }
 }
@@ -134,6 +148,8 @@ mod tests {
         assert_eq!(config.double_tap_ms, 500);
         assert_eq!(config.save_history, true);
         assert_eq!(config.theme_mode, ThemeMode::Auto);
+        assert_eq!(config.snippet_key, "left_shift");
+        assert_eq!(config.history_key, "left_ctrl");
     }
 
     #[test]
@@ -146,6 +162,8 @@ mod tests {
             double_tap_ms = 300
             save_history = false
             theme_mode = "dark"
+            snippet_key = "shift"
+            history_key = "ctrl"
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -155,5 +173,7 @@ mod tests {
         assert_eq!(config.double_tap_ms, 300);
         assert_eq!(config.save_history, false);
         assert_eq!(config.theme_mode, ThemeMode::Dark);
+        assert_eq!(config.snippet_key, "shift");
+        assert_eq!(config.history_key, "ctrl");
     }
 }
