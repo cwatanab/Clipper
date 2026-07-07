@@ -283,6 +283,84 @@ pub unsafe extern "system" fn edit_subclass_proc(
     if msg == win32::WM_KEYDOWN {
         state::log_debug(&format!("Edit KeyDown: vk={}", wparam));
         match wparam {
+            37 => {
+                // Left Arrow
+                let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
+                if len == 0 {
+                    let has_parent = {
+                        let state_guard = lock_state();
+                        state_guard
+                            .as_ref()
+                            .is_some_and(|s| s.mode == Mode::Snippet && !s.current_folder.is_empty())
+                    };
+                    if has_parent {
+                        let mut state_guard = lock_state();
+                        if let Some(state) = &mut *state_guard {
+                            let mut parts = util::split_path(&state.current_folder);
+                            if parts.len() > 1 {
+                                parts.pop();
+                                state.current_folder = util::join_path(&parts);
+                            } else {
+                                state.current_folder.clear();
+                            }
+                        }
+                        std::mem::drop(state_guard);
+                        ui::update_listbox_items();
+                        ui::update_search_cue_banner();
+                        return 0;
+                    }
+                }
+            }
+            39 => {
+                // Right Arrow
+                let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
+                if len == 0 {
+                    let mut target_path = String::new();
+                    let mut is_snippet_mode = false;
+                    
+                    if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                        let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
+                        if cur != win32::LB_ERR {
+                            let state_guard = lock_state();
+                            if let Some(state) = &*state_guard {
+                                is_snippet_mode = state.mode == Mode::Snippet;
+                                if (cur as usize) < state.current_full_paths.len() {
+                                    target_path = state.current_full_paths[cur as usize].clone();
+                                }
+                            }
+                        }
+                    }
+
+                    if is_snippet_mode && !target_path.is_empty() {
+                        if target_path == ".." {
+                            let mut state_guard = lock_state();
+                            if let Some(state) = &mut *state_guard {
+                                let mut parts = util::split_path(&state.current_folder);
+                                if parts.len() > 1 {
+                                    parts.pop();
+                                    state.current_folder = util::join_path(&parts);
+                                } else {
+                                    state.current_folder.clear();
+                                }
+                            }
+                            std::mem::drop(state_guard);
+                            ui::update_listbox_items();
+                            ui::update_search_cue_banner();
+                            return 0;
+                        } else if target_path.starts_with("dir:") {
+                            let folder = target_path["dir:".len()..].to_string();
+                            let mut state_guard = lock_state();
+                            if let Some(state) = &mut *state_guard {
+                                state.current_folder = folder;
+                            }
+                            std::mem::drop(state_guard);
+                            ui::update_listbox_items();
+                            ui::update_search_cue_banner();
+                            return 0;
+                        }
+                    }
+                }
+            }
             38 => {
                 ui::move_listbox_selection(-1);
                 return 0;
