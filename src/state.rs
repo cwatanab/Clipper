@@ -63,6 +63,8 @@ unsafe impl Sync for SafeHFONT {}
 
 pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
+pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
+pub static OTHER_KEY_PRESSED: AtomicBool = AtomicBool::new(false);
 pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
 pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
