@@ -313,6 +313,9 @@ mod windows {
     pub const NIIF_ERROR: u32 = 3;
     pub const MB_OK: u32 = 0x00000000;
     pub const MB_ICONINFORMATION: u32 = 0x00000040;
+    pub const MB_YESNO: u32 = 0x00000004;
+    pub const MB_ICONQUESTION: u32 = 0x00000020;
+    pub const IDYES: i32 = 6;
     pub const WM_TRAYICON: u32 = 0x8000 + 1;
     pub const WM_LBUTTONDBLCLK: usize = 0x0203;
     pub const WM_RBUTTONUP: usize = 0x0205;
