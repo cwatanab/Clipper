@@ -45,7 +45,7 @@ fn default_width() -> f32 {
 }
 
 fn default_double_tap_ms() -> u32 {
-    500
+    300
 }
 
 fn default_save_history() -> bool {
@@ -71,7 +71,7 @@ impl Default for Config {
             max_rows: 15,
             max_history: 1000,
             width: 380.0,
-            double_tap_ms: 500,
+            double_tap_ms: 300,
             save_history: true,
             theme_mode: ThemeMode::Auto,
             snippet_key: "left_shift".to_string(),
@@ -145,7 +145,7 @@ mod tests {
         assert_eq!(config.max_rows, 10);
         assert_eq!(config.max_history, 1000);
         assert_eq!(config.width, 380.0);
-        assert_eq!(config.double_tap_ms, 500);
+        assert_eq!(config.double_tap_ms, 300);
         assert_eq!(config.save_history, true);
         assert_eq!(config.theme_mode, ThemeMode::Auto);
         assert_eq!(config.snippet_key, "left_shift");

@@ -676,6 +676,13 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("履歴をファイルに保存する").as_ptr(),
         );
 
+        win32::AppendMenuW(
+            menu,
+            0,
+            1009,
+            util::to_wstring("履歴をクリア").as_ptr(),
+        );
+
         win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
 
         // Exit
@@ -769,6 +776,48 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             if let Some(history_arc) = history_to_save {
                 util::save_history(&history_arc);
             }
+        }
+    } else if cmd == 1009 {
+        let title_w = util::to_wstring("Clipper");
+        let question_w = util::to_wstring("クリップボード履歴をすべてクリアしますか？\n（この操作は取り消せません）");
+        let res = unsafe {
+            win32::MessageBoxW(
+                hwnd,
+                question_w.as_ptr(),
+                title_w.as_ptr(),
+                win32::MB_YESNO | win32::MB_ICONQUESTION,
+            )
+        };
+        if res == win32::IDYES {
+            // Clear in-memory history
+            let mut state_guard = lock_state();
+            if let Some(state) = &mut *state_guard {
+                state.history = std::sync::Arc::new(std::collections::VecDeque::new());
+                state.current_results.clear();
+                state.current_full_paths.clear();
+            }
+            std::mem::drop(state_guard);
+
+            // Persist empty history to disk
+            util::save_history(&std::collections::VecDeque::new());
+
+            // Update UI listbox if visible
+            update_listbox_items();
+
+            // Display balloon notification
+            let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+            nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+            nid.hWnd = hwnd;
+            nid.uID = 1;
+            nid.uFlags = win32::NIF_INFO;
+            let title_w = util::to_wstring("Clipper");
+            let title_len = std::cmp::min(title_w.len(), 63);
+            nid.szInfoTitle[..title_len].copy_from_slice(&title_w[..title_len]);
+            let msg_w = util::to_wstring("履歴をクリアしました");
+            let msg_len = std::cmp::min(msg_w.len(), 255);
+            nid.szInfo[..msg_len].copy_from_slice(&msg_w[..msg_len]);
+            nid.dwInfoFlags = win32::NIIF_INFO;
+            unsafe { win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid) };
         }
     } else if cmd == 1003 {
         unsafe { win32::PostQuitMessage(0) };

@@ -51,36 +51,49 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                 let mapped_vk = if is_snippet { 1u32 } else { 2u32 };
                 let prev_vk = LAST_KEY_VK.load(Ordering::Relaxed);
                 let prev_time = LAST_KEY_TIME.load(Ordering::Relaxed);
+                let other_pressed = crate::state::OTHER_KEY_PRESSED.load(Ordering::Relaxed);
+                let keydown_time = crate::state::LAST_KEYDOWN_TIME.load(Ordering::Relaxed);
+                let hold_duration = now_time.wrapping_sub(keydown_time);
 
-                if prev_vk == mapped_vk && now_time.wrapping_sub(prev_time) < double_tap_ms {
-                    let main_hwnd_val = MAIN_HWND.get();
-                    if let Some(SafeHWND(main_hwnd)) = main_hwnd_val
-                        && !(*main_hwnd).is_null()
-                    {
-                        let active_hwnd = unsafe { win32::GetForegroundWindow() };
-                        let msg = if mapped_vk == 1 {
-                            WM_TRIGGER_SNIPPET
-                        } else {
-                            WM_TRIGGER_HISTORY
-                        };
-                        unsafe {
-                            win32::PostMessageW(*main_hwnd, msg, active_hwnd as win32::WPARAM, 0)
+                if other_pressed || hold_duration > 150 {
+                    LAST_KEY_VK.store(0, Ordering::Relaxed);
+                } else {
+                    if prev_vk == mapped_vk && now_time.wrapping_sub(prev_time) < double_tap_ms {
+                        let main_hwnd_val = MAIN_HWND.get();
+                        if let Some(SafeHWND(main_hwnd)) = main_hwnd_val
+                            && !(*main_hwnd).is_null()
+                        {
+                            let active_hwnd = unsafe { win32::GetForegroundWindow() };
+                            let msg = if mapped_vk == 1 {
+                                WM_TRIGGER_SNIPPET
+                            } else {
+                                WM_TRIGGER_HISTORY
+                            };
+                            unsafe {
+                                win32::PostMessageW(*main_hwnd, msg, active_hwnd as win32::WPARAM, 0)
+                            };
+                        }
+                        LAST_KEY_VK.store(0, Ordering::Relaxed);
+                        return unsafe {
+                            win32::CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
                         };
                     }
-                    LAST_KEY_VK.store(0, Ordering::Relaxed);
-                    return unsafe {
-                        win32::CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
-                    };
+                    LAST_KEY_VK.store(mapped_vk, Ordering::Relaxed);
+                    LAST_KEY_TIME.store(now_time, Ordering::Relaxed);
                 }
-                LAST_KEY_VK.store(mapped_vk, Ordering::Relaxed);
-                LAST_KEY_TIME.store(now_time, Ordering::Relaxed);
+            } else {
+                crate::state::OTHER_KEY_PRESSED.store(true, Ordering::Relaxed);
             }
         } else if wparam == win32::WM_KEYDOWN as win32::WPARAM
             || wparam == win32::WM_SYSKEYDOWN as win32::WPARAM
         {
             let is_snippet = matches_key(vk, &snippet_key);
             let is_history = matches_key(vk, &history_key);
-            if !is_snippet && !is_history {
+            if is_snippet || is_history {
+                crate::state::LAST_KEYDOWN_TIME.store(now_time, Ordering::Relaxed);
+                crate::state::OTHER_KEY_PRESSED.store(false, Ordering::Relaxed);
+            } else {
+                crate::state::OTHER_KEY_PRESSED.store(true, Ordering::Relaxed);
                 LAST_KEY_VK.store(0, Ordering::Relaxed);
             }
         }
