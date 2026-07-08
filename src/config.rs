@@ -36,6 +36,8 @@ pub struct Config {
     pub history_key: String,
     #[serde(default = "default_exclude_apps")]
     pub exclude_apps: Vec<String>,
+    #[serde(default = "default_sort_snippets")]
+    pub sort_snippets: bool,
 }
 
 fn default_max_history() -> usize {
@@ -75,6 +77,10 @@ fn default_exclude_apps() -> Vec<String> {
     ]
 }
 
+fn default_sort_snippets() -> bool {
+    false
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -88,6 +94,7 @@ impl Default for Config {
             snippet_key: "left_shift".to_string(),
             history_key: "left_ctrl".to_string(),
             exclude_apps: default_exclude_apps(),
+            sort_snippets: false,
         }
     }
 }
@@ -164,6 +171,7 @@ mod tests {
         assert_eq!(config.history_key, "left_ctrl");
         assert!(config.exclude_apps.contains(&"1Password.exe".to_string()));
         assert!(config.exclude_apps.contains(&"Bitwarden.exe".to_string()));
+        assert_eq!(config.sort_snippets, false);
     }
 
     #[test]
@@ -179,6 +187,7 @@ mod tests {
             snippet_key = "shift"
             history_key = "ctrl"
             exclude_apps = ["test.exe"]
+            sort_snippets = true
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -191,6 +200,7 @@ mod tests {
         assert_eq!(config.snippet_key, "shift");
         assert_eq!(config.history_key, "ctrl");
         assert_eq!(config.exclude_apps, vec!["test.exe".to_string()]);
+        assert_eq!(config.sort_snippets, true);
     }
 
     #[test]
@@ -210,5 +220,23 @@ mod tests {
         "#;
         let config_custom: Config = toml::from_str(custom_toml).unwrap();
         assert_eq!(config_custom.exclude_apps, vec!["custom.exe".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_sort_snippets() {
+        let minimal_toml = r#"
+            font_name = "Segoe UI"
+            max_rows = 10
+        "#;
+        let config: Config = toml::from_str(minimal_toml).unwrap();
+        assert_eq!(config.sort_snippets, false); // Default must be false
+
+        let custom_toml = r#"
+            font_name = "Segoe UI"
+            max_rows = 10
+            sort_snippets = true
+        "#;
+        let config_custom: Config = toml::from_str(custom_toml).unwrap();
+        assert_eq!(config_custom.sort_snippets, true);
     }
 }
