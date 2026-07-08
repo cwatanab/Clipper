@@ -174,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(shortcut_idx) = get_shortcut_index(msg.wparam) {
                     let (top_index, item_count) = {
                         let top = if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                            unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize }
+                            win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize
                         } else {
                             0
                         };
