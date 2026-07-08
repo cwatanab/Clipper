@@ -374,6 +374,19 @@ pub unsafe extern "system" fn edit_subclass_proc(
                 ui::move_listbox_selection(1);
                 return 0;
             }
+            33 | 34 => {
+                // Page Up / Page Down
+                if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                    unsafe {
+                        win32::SendMessageW(*hwnd_listbox, win32::WM_KEYDOWN, wparam, lparam);
+                    }
+                    update_top_index();
+                    unsafe {
+                        win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 0);
+                    }
+                }
+                return 0;
+            }
             13 => {
                 ui::on_select();
                 return 0;
