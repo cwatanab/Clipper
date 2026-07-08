@@ -708,6 +708,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         let _ = std::process::Command::new("explorer").arg(path).spawn();
     } else if cmd == 1005 {
         let path = util::get_app_dir().join("snippets");
+        let _ = std::fs::create_dir_all(&path);
         let _ = std::process::Command::new("explorer").arg(path).spawn();
     } else if cmd == 1006 {
         let count = {
