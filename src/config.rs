@@ -34,6 +34,8 @@ pub struct Config {
     pub snippet_key: String,
     #[serde(default = "default_history_key")]
     pub history_key: String,
+    #[serde(default = "default_exclude_apps")]
+    pub exclude_apps: Vec<String>,
 }
 
 fn default_max_history() -> usize {
@@ -64,6 +66,13 @@ fn default_history_key() -> String {
     "left_ctrl".to_string()
 }
 
+fn default_exclude_apps() -> Vec<String> {
+    vec![
+        "1Password.exe".to_string(),
+        "Bitwarden.exe".to_string(),
+    ]
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -76,6 +85,7 @@ impl Default for Config {
             theme_mode: ThemeMode::Auto,
             snippet_key: "left_shift".to_string(),
             history_key: "left_ctrl".to_string(),
+            exclude_apps: default_exclude_apps(),
         }
     }
 }
@@ -175,5 +185,24 @@ mod tests {
         assert_eq!(config.theme_mode, ThemeMode::Dark);
         assert_eq!(config.snippet_key, "shift");
         assert_eq!(config.history_key, "ctrl");
+    }
+
+    #[test]
+    fn test_parse_exclude_apps() {
+        let minimal_toml = r#"
+            font_name = "Segoe UI"
+            max_rows = 10
+        "#;
+        let config: Config = toml::from_str(minimal_toml).unwrap();
+        assert!(config.exclude_apps.contains(&"1Password.exe".to_string()));
+        assert!(config.exclude_apps.contains(&"Bitwarden.exe".to_string()));
+
+        let custom_toml = r#"
+            font_name = "Segoe UI"
+            max_rows = 10
+            exclude_apps = ["custom.exe"]
+        "#;
+        let config_custom: Config = toml::from_str(custom_toml).unwrap();
+        assert_eq!(config_custom.exclude_apps, vec!["custom.exe".to_string()]);
     }
 }
