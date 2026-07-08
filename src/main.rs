@@ -12,8 +12,23 @@ mod win32;
 mod wndproc;
 
 use crate::hook::keyboard_hook_proc;
-use crate::state::{MAIN_HWND, Mode, SafeHWND, lock_state};
+use crate::state::{MAIN_HWND, Mode, SafeHWND, lock_state, LISTBOX_HWND};
 use crate::wndproc::window_proc;
+
+fn get_shortcut_index(wparam: usize) -> Option<usize> {
+    if (0x31..=0x39).contains(&wparam) {
+        // '1'..'9'
+        Some(wparam - 0x31)
+    } else if wparam == 0x30 {
+        // '0'
+        Some(9)
+    } else if (0x41..=0x5A).contains(&wparam) {
+        // 'A'..'Z'
+        Some(10 + (wparam - 0x41))
+    } else {
+        None
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set Per-Monitor DPI Aware V2 context
@@ -141,7 +156,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut msg = std::mem::zeroed();
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-            let is_visible = {
+            let is_key_msg = msg.message == win32::WM_KEYDOWN || msg.message == win32::WM_SYSKEYDOWN;
+            let is_visible = is_key_msg && {
                 let state_guard = lock_state();
                 state_guard.as_ref().is_some_and(|s| s.visible)
             };
@@ -152,6 +168,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 } else if msg.wparam == 27 {
                     ui::hide_window();
+                    continue;
+                }
+            } else if is_visible && msg.message == win32::WM_SYSKEYDOWN {
+                if let Some(shortcut_idx) = get_shortcut_index(msg.wparam) {
+                    let (top_index, item_count) = {
+                        let top = if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                            unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize }
+                        } else {
+                            0
+                        };
+                        let state_guard = lock_state();
+                        let count = state_guard.as_ref().map_or(0, |s| s.current_results.len());
+                        (top, count)
+                    };
+                    let target_idx = top_index + shortcut_idx;
+
+                    if target_idx < item_count {
+                        if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                            win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, target_idx, 0);
+                            ui::on_select();
+                        }
+                    }
                     continue;
                 }
             }
@@ -170,4 +208,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_shortcut_index() {
+        assert_eq!(get_shortcut_index(0x31), Some(0)); // '1'
+        assert_eq!(get_shortcut_index(0x39), Some(8)); // '9'
+        assert_eq!(get_shortcut_index(0x30), Some(9)); // '0'
+        assert_eq!(get_shortcut_index(0x41), Some(10)); // 'A'
+        assert_eq!(get_shortcut_index(0x5A), Some(35)); // 'Z'
+        assert_eq!(get_shortcut_index(b' ' as usize), None);
+        assert_eq!(get_shortcut_index(0x00), None);
+    }
 }
