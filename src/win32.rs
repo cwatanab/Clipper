@@ -932,7 +932,7 @@ mod windows {
     }
     pub unsafe fn OpenProcess(
         _dwDesiredAccess: u32,
-        _bInheritHandle: i32,
+        _bInheritHandle: BOOL,
         _dwProcessId: u32,
     ) -> *mut std::ffi::c_void {
         std::ptr::null_mut()
@@ -945,7 +945,7 @@ mod windows {
         _dwFlags: u32,
         _lpExeName: *mut u16,
         _lpdwSize: *mut u32,
-    ) -> i32 {
+    ) -> BOOL {
         0
     }
     pub unsafe fn GetCurrentProcess() -> *mut std::ffi::c_void {

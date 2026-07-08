@@ -1078,7 +1078,9 @@ mod tests {
 
     #[test]
     fn test_get_active_process_name_compiles() {
-        // Should not crash, and under test environment might return None or Some(process)
-        let _name = get_active_process_name();
+        let name = get_active_process_name();
+        if let Some(n) = name {
+            assert!(!n.is_empty(), "Process name should not be empty");
+        }
     }
 }

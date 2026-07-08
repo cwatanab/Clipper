@@ -71,7 +71,12 @@ save_history = true     # クリップボード履歴を暗号化ファイルに
 theme_mode = "auto"     # カラーテーマ ("auto": システム同期, "dark": ダークモード固定, "light": ライトモード固定)
 snippet_key = "left_shift"  # 定型文呼び出しホットキー ("left_shift", "right_shift", "shift", "left_ctrl", "right_ctrl", "ctrl", "left_alt", "right_alt", "alt", "none")
 history_key = "left_ctrl"   # 履歴呼び出しホットキー ("left_shift", "right_shift", "shift", "left_ctrl", "right_ctrl", "ctrl", "left_alt", "right_alt", "alt", "none")
+exclude_apps = ["1Password.exe", "Bitwarden.exe", "KeePassXC.exe", "KeePass.exe"] # クリップボード履歴の収集対象から除外する実行ファイル名
 ```
+
+- **`exclude_apps`** (オプション): クリップボード履歴の収集対象から除外する実行ファイル名のリスト。
+  - **仕様**: 大文字小文字は区別されません（ケースインセンシティブ）。必ず `.exe` 拡張子を含めて指定してください（例: `"1Password.exe"`）。
+  - **デフォルト値**: `["1Password.exe", "Bitwarden.exe", "KeePassXC.exe", "KeePass.exe"]`
 
 ### 2. カスタムスニペットの作成と管理 (`%APPDATA%\Clipper\snippets\`)
 

@@ -70,6 +70,8 @@ fn default_exclude_apps() -> Vec<String> {
     vec![
         "1Password.exe".to_string(),
         "Bitwarden.exe".to_string(),
+        "KeePassXC.exe".to_string(),
+        "KeePass.exe".to_string(),
     ]
 }
 
@@ -160,6 +162,8 @@ mod tests {
         assert_eq!(config.theme_mode, ThemeMode::Auto);
         assert_eq!(config.snippet_key, "left_shift");
         assert_eq!(config.history_key, "left_ctrl");
+        assert!(config.exclude_apps.contains(&"1Password.exe".to_string()));
+        assert!(config.exclude_apps.contains(&"Bitwarden.exe".to_string()));
     }
 
     #[test]
@@ -174,6 +178,7 @@ mod tests {
             theme_mode = "dark"
             snippet_key = "shift"
             history_key = "ctrl"
+            exclude_apps = ["test.exe"]
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -185,6 +190,7 @@ mod tests {
         assert_eq!(config.theme_mode, ThemeMode::Dark);
         assert_eq!(config.snippet_key, "shift");
         assert_eq!(config.history_key, "ctrl");
+        assert_eq!(config.exclude_apps, vec!["test.exe".to_string()]);
     }
 
     #[test]
