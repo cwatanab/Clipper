@@ -991,12 +991,12 @@ pub unsafe extern "system" fn window_proc(
             };
 
             // Draw shortcut keycap if applicable
-            let shortcut_width = (24.0 * scale) as i32;
+            let shortcut_width = (16.0 * scale) as i32;
 
             if let Some(shortcut_char) = shortcut_char_opt {
                 let key_size_w = (16.0 * scale) as i32;
                 let key_size_h = (16.0 * scale) as i32;
-                let key_x = rc.left + (12.0 * scale) as i32;
+                let key_x = rc.left + (4.0 * scale) as i32;
                 let key_y = rc.top + (rc.bottom - rc.top - key_size_h) / 2;
                 let mut key_rc = win32::RECT {
                     left: key_x,
