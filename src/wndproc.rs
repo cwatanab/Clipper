@@ -1245,7 +1245,18 @@ pub unsafe extern "system" fn window_proc(
             ui::hide_window();
         }
         win32::WM_CLIPBOARDUPDATE => {
-            if let Some(text) = util::get_clipboard_text()
+            let is_excluded = if let Some(active_app) = util::get_active_process_name() {
+                state::CONFIG.get().map_or(false, |c| {
+                    c.exclude_apps.iter().any(|app| {
+                        app.eq_ignore_ascii_case(&active_app)
+                    })
+                })
+            } else {
+                false
+            };
+
+            if !is_excluded
+                && let Some(text) = util::get_clipboard_text()
                 && !text.is_empty()
             {
                 let history_to_save = {
