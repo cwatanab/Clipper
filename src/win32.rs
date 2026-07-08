@@ -330,6 +330,7 @@ mod windows {
     #[link(name = "user32")]
     unsafe extern "system" {
         pub fn GetForegroundWindow() -> HWND;
+        pub fn GetClipboardOwner() -> HWND;
         pub fn SetForegroundWindow(hwnd: HWND) -> BOOL;
         pub fn GetFocus() -> HWND;
         pub fn IsWindow(hwnd: HWND) -> BOOL;
@@ -519,6 +520,17 @@ mod windows {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
+        pub fn OpenProcess(
+            dwDesiredAccess: u32,
+            bInheritHandle: BOOL,
+            dwProcessId: u32,
+        ) -> *mut c_void;
+        pub fn QueryFullProcessImageNameW(
+            hProcess: *mut c_void,
+            dwFlags: u32,
+            lpExeName: *mut u16,
+            lpdwSize: *mut u32,
+        ) -> BOOL;
         pub fn CreateMutexW(
             lpMutexAttributes: *mut c_void,
             bInitialOwner: BOOL,
@@ -621,6 +633,7 @@ mod windows {
     }
 
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     // --- MSAA / IAccessible support for caret position ---
 
@@ -772,6 +785,7 @@ mod windows {
     pub const COLOR_3DFACE: u32 = 15;
     pub const COLOR_WINDOW: u32 = 5;
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     pub type HKEY = usize;
     pub const HKEY_CURRENT_USER: HKEY = 0;
@@ -911,7 +925,25 @@ mod windows {
         0
     }
     pub unsafe fn GetFocus() -> HWND {
+        0
+    }
+    pub unsafe fn GetClipboardOwner() -> HWND {
+        0
+    }
+    pub unsafe fn OpenProcess(
+        _dwDesiredAccess: u32,
+        _bInheritHandle: i32,
+        _dwProcessId: u32,
+    ) -> *mut std::ffi::c_void {
         std::ptr::null_mut()
+    }
+    pub unsafe fn QueryFullProcessImageNameW(
+        _hProcess: *mut std::ffi::c_void,
+        _dwFlags: u32,
+        _lpExeName: *mut u16,
+        _lpdwSize: *mut u32,
+    ) -> i32 {
+        0
     }
     pub unsafe fn GetCurrentProcess() -> *mut std::ffi::c_void {
         std::ptr::null_mut()
