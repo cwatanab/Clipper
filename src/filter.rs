@@ -54,7 +54,9 @@ pub fn filter_items(
                     }
                 }
 
-                // Add sorted subdirectories
+                let sort_snippets = crate::state::CONFIG.get().map_or(false, |c| c.sort_snippets);
+
+                // Add subdirectories (always sorted)
                 let mut folders: Vec<String> = folder_names.into_iter().collect();
                 folders.sort();
                 for f in folders {
@@ -68,8 +70,10 @@ pub fn filter_items(
                     }
                 }
 
-                // Add sorted snippets
-                local_snippets.sort_by(|a, b| a.1.cmp(&b.1));
+                // Add snippets (conditionally sorted)
+                if sort_snippets {
+                    local_snippets.sort_by(|a, b| a.1.cmp(&b.1));
+                }
                 for (full_path, display_name) in local_snippets {
                     display_items.push(format!("[SNIP] {}", display_name));
                     full_paths.push(full_path.to_string());
@@ -180,6 +184,8 @@ pub fn filter_items(
                 full_paths.push("..".to_string());
             }
 
+            let sort_snippets = crate::state::CONFIG.get().map_or(false, |c| c.sort_snippets);
+
             let mut folders_matches = Vec::new();
             for f in folder_names {
                 if matches_text(&f) {
@@ -204,7 +210,9 @@ pub fn filter_items(
                     snippets_matches.push((name, display_name));
                 }
             }
-            snippets_matches.sort_by(|a, b| a.1.cmp(&b.1));
+            if sort_snippets {
+                snippets_matches.sort_by(|a, b| a.1.cmp(&b.1));
+            }
             for (full_path, display_name) in snippets_matches {
                 display_items.push(format!("[SNIP] {}", display_name));
                 full_paths.push(full_path.to_string());
@@ -254,3 +262,40 @@ fn clean_history_item(s: &str) -> String {
     }
     clean
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_filter_items_natural_order() {
+        let state = AppState {
+            history: std::sync::Arc::new(std::collections::VecDeque::new()),
+            snippets: std::sync::Arc::new(vec![
+                ("zebra".to_string(), "Zebra".to_string()),
+                ("apple".to_string(), "Apple".to_string()),
+            ]),
+            mode: Mode::Snippet,
+            visible: false,
+            current_results: Vec::new(),
+            current_full_paths: Vec::new(),
+            last_clipboard_value: String::new(),
+            current_selection: String::new(),
+            last_active_window: None,
+            is_dark: false,
+            current_folder: String::new(),
+            top_index: 0,
+            filter_generation: 0,
+        };
+
+        let (display_items, _) = filter_items("", &state, None);
+
+        let zebra_idx = display_items.iter().position(|x| x == "[SNIP] zebra" || x == "[SNIP] Zebra");
+        let apple_idx = display_items.iter().position(|x| x == "[SNIP] apple" || x == "[SNIP] Apple");
+
+        assert!(zebra_idx.is_some(), "Zebra/zebra should be in display items");
+        assert!(apple_idx.is_some(), "Apple/apple should be in display items");
+        assert!(zebra_idx.unwrap() < apple_idx.unwrap(), "Zebra/zebra should come before Apple/apple in natural order");
+    }
+}
+
