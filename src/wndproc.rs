@@ -447,6 +447,11 @@ pub unsafe extern "system" fn listbox_subclass_proc(
     wparam: win32::WPARAM,
     lparam: win32::LPARAM,
 ) -> win32::LRESULT {
+    let is_scroll_msg = msg == WM_VSCROLL 
+        || msg == WM_MOUSEWHEEL 
+        || msg == win32::WM_KEYDOWN 
+        || msg == 0x0101; // WM_KEYUP
+
     if msg == win32::WM_LBUTTONUP {
         let old_proc_opt = state::OLD_LISTBOX_PROC.get();
         let res = unsafe {
@@ -466,13 +471,22 @@ pub unsafe extern "system" fn listbox_subclass_proc(
     }
 
     let old_proc_opt = state::OLD_LISTBOX_PROC.get();
-    unsafe {
+    let res = unsafe {
         if let Some(SafeWndProc(old_proc)) = old_proc_opt {
             old_proc(hwnd, msg, wparam, lparam)
         } else {
             win32::DefWindowProcW(hwnd, msg, wparam, lparam)
         }
+    };
+
+    if is_scroll_msg {
+        unsafe {
+            win32::InvalidateRect(hwnd, std::ptr::null(), 0);
+        }
+        update_top_index();
     }
+
+    res
 }
 
 #[cfg(target_os = "windows")]
