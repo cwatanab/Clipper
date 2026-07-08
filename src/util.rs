@@ -497,6 +497,49 @@ pub fn get_clipboard_text() -> Option<String> {
     }
 }
 
+pub fn get_active_process_name() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let mut hwnd = win32::GetClipboardOwner();
+        if hwnd.is_null() {
+            hwnd = win32::GetForegroundWindow();
+        }
+        if hwnd.is_null() {
+            return None;
+        }
+
+        let mut pid: u32 = 0;
+        win32::GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == 0 {
+            return None;
+        }
+
+        let h_process = win32::OpenProcess(win32::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h_process.is_null() {
+            return None;
+        }
+
+        let mut path_buf = vec![0u16; 1024];
+        let mut size = path_buf.len() as u32;
+        let ret = win32::QueryFullProcessImageNameW(h_process, 0, path_buf.as_mut_ptr(), &mut size);
+        win32::CloseHandle(h_process);
+
+        if ret == 0 {
+            return None;
+        }
+
+        let path_w = &path_buf[..size as usize];
+        let path_str = String::from_utf16_lossy(path_w);
+        std::path::Path::new(&path_str)
+            .file_name()
+            .map(|os_str| os_str.to_string_lossy().into_owned())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
 pub fn set_clipboard_text(text: &str) -> bool {
     #[cfg(target_os = "windows")]
     unsafe {
@@ -1031,5 +1074,11 @@ mod tests {
                 "{{ now|datetimeformat('YYYY/MM/DD') }}".to_string()
             )]
         );
+    }
+
+    #[test]
+    fn test_get_active_process_name_compiles() {
+        // Should not crash, and under test environment might return None or Some(process)
+        let _name = get_active_process_name();
     }
 }

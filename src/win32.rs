@@ -937,6 +937,9 @@ mod windows {
     ) -> *mut std::ffi::c_void {
         std::ptr::null_mut()
     }
+    pub unsafe fn GetWindowThreadProcessId(_hWnd: HWND, _lpdwProcessId: *mut u32) -> u32 {
+        0
+    }
     pub unsafe fn QueryFullProcessImageNameW(
         _hProcess: *mut std::ffi::c_void,
         _dwFlags: u32,
