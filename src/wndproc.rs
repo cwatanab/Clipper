@@ -55,6 +55,11 @@ const DARK_THEME: ThemeColors = ThemeColors {
     border_color: 0x003A3838,   // Subtle dark border (RGB: 56, 56, 58)
 };
 
+const SHORTCUT_CHARS: &[char] = &[
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+];
+
 // Update theme colors, brushes, fonts and apply to controls
 pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
     let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -904,6 +909,20 @@ pub unsafe extern "system" fn window_proc(
 
             let scale = unsafe { win32::GetDpiForWindow(dis.hwnd_item) } as f32 / 96.0;
 
+            let top_index = unsafe {
+                win32::SendMessageW(dis.hwnd_item, win32::LB_GETTOPINDEX, 0, 0)
+            } as usize;
+            let relative_idx = (dis.item_id as usize).checked_sub(top_index);
+            let shortcut_char_opt = if let Some(idx) = relative_idx {
+                if idx < SHORTCUT_CHARS.len() {
+                    Some(SHORTCUT_CHARS[idx])
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             if selected {
                 let gap_x = (2.0 * scale) as i32;
                 let gap_y = (1.0 * scale) as i32;
@@ -944,6 +963,74 @@ pub unsafe extern "system" fn window_proc(
                 win32::SetBkMode(hdc, 1 /* TRANSPARENT */)
             };
 
+            // Draw shortcut keycap if applicable
+            let shortcut_width = (24.0 * scale) as i32;
+
+            if let Some(shortcut_char) = shortcut_char_opt {
+                let key_size_w = (16.0 * scale) as i32;
+                let key_size_h = (16.0 * scale) as i32;
+                let key_x = rc.left + (12.0 * scale) as i32;
+                let key_y = rc.top + (rc.bottom - rc.top - key_size_h) / 2;
+                let mut key_rc = win32::RECT {
+                    left: key_x,
+                    top: key_y,
+                    right: key_x + key_size_w,
+                    bottom: key_y + key_size_h,
+                };
+
+                unsafe {
+                    let pen_color = colors.border_color;
+
+                    let key_pen = win32::CreatePen(win32::PS_SOLID, 1, pen_color);
+                    let key_brush_guard = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner());
+                    let key_brush = if let Some(SafeHBRUSH(brush)) = key_brush_guard.as_ref() {
+                        *brush
+                    } else {
+                        std::ptr::null_mut()
+                    };
+
+                    let old_pen = win32::SelectObject(hdc, key_pen);
+                    let old_brush = win32::SelectObject(hdc, key_brush);
+
+                    let round_size = (3.0 * scale) as i32;
+                    win32::RoundRect(
+                        hdc,
+                        key_rc.left,
+                        key_rc.top,
+                        key_rc.right,
+                        key_rc.bottom,
+                        round_size,
+                        round_size,
+                    );
+
+                    win32::SelectObject(hdc, old_pen);
+                    win32::SelectObject(hdc, old_brush);
+                    win32::DeleteObject(key_pen);
+
+                    let old_text_color = win32::SetTextColor(hdc, colors.text_color);
+
+                    let font_to_use = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut old_font = None;
+                    if let Some(SafeHFONT(font)) = font_to_use.as_ref() {
+                        old_font = Some(win32::SelectObject(hdc, *font as win32::HGDIOBJ));
+                    }
+
+                    let char_utf16 = [shortcut_char as u16];
+                    win32::DrawTextW(
+                        hdc,
+                        char_utf16.as_ptr(),
+                        1,
+                        &mut key_rc,
+                        win32::DT_SINGLELINE | win32::DT_CENTER | win32::DT_VCENTER | win32::DT_NOPREFIX,
+                    );
+
+                    if let Some(o_font) = old_font {
+                        win32::SelectObject(hdc, o_font);
+                    }
+                    win32::SetTextColor(hdc, old_text_color);
+                }
+            }
+
             // Parse text and tags directly on UTF-16 slice to prevent heap allocations
             let wide_text = if len < 512 {
                 &stack_buf[..len]
@@ -975,7 +1062,7 @@ pub unsafe extern "system" fn window_proc(
             if let Some(icon_type) = icon_type_opt {
                 let icon_size = (16.0 * scale) as i32;
                 let icon_left = (12.0 * scale) as i32;
-                let icon_x = rc.left + icon_left;
+                let icon_x = rc.left + icon_left + shortcut_width;
                 let icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
                 // Use dim color for non-selected icons, accent color when selected
                 let icon_color = if selected {
@@ -998,9 +1085,9 @@ pub unsafe extern "system" fn window_proc(
 
             // Draw candidate text (adjust margin based on pill shape padding)
             let text_left_margin = if has_icon {
-                (34.0 * scale) as i32
+                shortcut_width + (34.0 * scale) as i32
             } else {
-                (12.0 * scale) as i32
+                shortcut_width + (12.0 * scale) as i32
             };
             let text_right_margin = if is_folder {
                 (26.0 * scale) as i32

@@ -173,8 +173,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if is_visible && msg.message == win32::WM_SYSKEYDOWN {
                 if let Some(shortcut_idx) = get_shortcut_index(msg.wparam) {
                     let (top_index, item_count) = {
+                        let top = if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                            unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize }
+                        } else {
+                            0
+                        };
                         let state_guard = lock_state();
-                        state_guard.as_ref().map_or((0, 0), |s| (s.top_index, s.current_results.len()))
+                        let count = state_guard.as_ref().map_or(0, |s| s.current_results.len());
+                        (top, count)
                     };
                     let target_idx = top_index + shortcut_idx;
 
