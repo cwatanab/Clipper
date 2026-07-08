@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-07-08
+
+### Added
+- コピー元アプリによる履歴除外機能 (`exclude_apps`) を追加。`1Password.exe` や `Bitwarden.exe` などのパスワードマネージャーからコピーされたテキストを履歴に保存しない設定を追加しました。
+- スニペットの並び順オプション (`sort_snippets`) を追加。スニペットリストをTOMLファイルに書かれた記述順（出現順）で表示するようになりました（デフォルト）。設定で `sort_snippets = true` にすることでアルファベット順ソートに切り替えることも可能です。
+- スニペットフォルダの自動生成フォールバックを追加。メニューから「スニペットフォルダを開く」を選択した際、フォルダが存在しない場合に自動生成して開くようにしました。
+
+### Fixed
+- スニペットサブフォルダ順序の安定化。スニペットのサブフォルダが、ソート設定に関わらず常にアルファベット順でソートされて並ぶように修正し、表示がランダムになるのを防ぎました。
+- フォルダ作成エラー時の通知。スニペットフォルダの自動作成に失敗した場合に、OSのエラーダイアログではなくアプリ内のトレイ通知で分かりやすく通知するように改善しました。
+
 ## [0.1.9] - 2026-07-07
 
 ### Added
@@ -23,5 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.1.10]: https://github.com/cwatanab/Clipper/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/cwatanab/Clipper/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/cwatanab/Clipper/releases/tag/v0.1.8
