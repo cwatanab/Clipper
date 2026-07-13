@@ -1889,9 +1889,9 @@ pub unsafe extern "system" fn window_proc(
                     if let Some(history_arc) = history_to_save
                         && state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed)
                     {
-                        std::thread::spawn(move || {
-                            util::save_history(&history_arc);
-                        });
+                        if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
+                            let _ = sender.send(history_arc);
+                        }
                     }
                 }
 

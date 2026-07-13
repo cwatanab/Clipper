@@ -40,6 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     state::SAVE_HISTORY_TO_FILE.store(config.save_history, std::sync::atomic::Ordering::Relaxed);
     let _ = state::CONFIG.set(config);
 
+    state::init_history_saver();
+
     darkmode::apply();
 
     // トースト通知用の AppUserModelId / IconUri を起動時に即座にレジストリ登録
@@ -158,6 +160,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             state::log_debug("SetWindowsHookExW registered successfully on main thread.");
         }
+
+        // Trim the working set initially to reduce startup memory to minimum
+        let h_process = win32::GetCurrentProcess();
+        win32::SetProcessWorkingSetSize(h_process, !0, !0);
 
         let mut msg = std::mem::zeroed();
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {

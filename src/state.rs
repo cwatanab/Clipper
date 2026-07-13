@@ -129,3 +129,39 @@ pub static FONT_ICONS_18: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub fn log_debug(_msg: &str) {}
 
 pub fn start_logging_thread() {}
+
+pub static HISTORY_SAVE_SENDER: OnceLock<std::sync::mpsc::Sender<Arc<VecDeque<String>>>> = OnceLock::new();
+
+pub fn init_history_saver() {
+    let (tx, rx) = std::sync::mpsc::channel::<Arc<VecDeque<String>>>();
+    if HISTORY_SAVE_SENDER.set(tx).is_ok() {
+        std::thread::spawn(move || {
+            let mut pending_data: Option<Arc<VecDeque<String>>> = None;
+            loop {
+                let timeout = if pending_data.is_some() {
+                    std::time::Duration::from_millis(200)
+                } else {
+                    std::time::Duration::MAX
+                };
+
+                match rx.recv_timeout(timeout) {
+                    Ok(data) => {
+                        pending_data = Some(data);
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        if let Some(data) = pending_data.take() {
+                            crate::util::save_history(&data);
+                        }
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        if let Some(data) = pending_data.take() {
+                            crate::util::save_history(&data);
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+    }
+}
+

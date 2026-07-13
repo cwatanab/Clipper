@@ -323,9 +323,9 @@ pub fn delete_selected_items(delete_count: usize) {
             }
 
             if let Some(history_arc) = history_to_save {
-                std::thread::spawn(move || {
-                    util::save_history(&history_arc);
-                });
+                if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
+                    let _ = sender.send(history_arc);
+                }
             }
 
             crate::wndproc::update_top_index();
@@ -974,9 +974,9 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                     .map(|s| std::sync::Arc::clone(&s.history))
             };
             if let Some(history_arc) = history_to_save {
-                std::thread::spawn(move || {
-                    util::save_history(&history_arc);
-                });
+                if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
+                    let _ = sender.send(history_arc);
+                }
             }
         }
     } else if cmd == 1009 {
@@ -1003,9 +1003,9 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             std::mem::drop(state_guard);
 
             // Persist empty history to disk
-            std::thread::spawn(move || {
-                util::save_history(&std::collections::VecDeque::new());
-            });
+            if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
+                let _ = sender.send(std::sync::Arc::new(std::collections::VecDeque::new()));
+            }
 
             // Update UI listbox if visible
             update_listbox_items();
