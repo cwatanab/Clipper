@@ -1,6 +1,6 @@
 [package]
 name = "clipper"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2024"
 
 [dependencies]
@@ -13,6 +13,7 @@ minijinja = { version = "2.0", default-features = false, features = [
     "builtins",
     "serde",
 ] }
+windows = { version = "0.58", features = ["Data_Xml_Dom", "UI_Notifications"] }
 
 [build-dependencies]
 embed-resource = "2.5"

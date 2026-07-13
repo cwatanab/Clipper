@@ -582,63 +582,106 @@ pub fn restore_focus(last_active_window: Option<usize>) {
 
 pub fn simulate_paste() {
     thread::sleep(Duration::from_millis(150));
-    let inputs = [
-        win32::INPUT {
-            r#type: win32::INPUT_KEYBOARD,
-            u: win32::INPUT_union {
-                ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_CONTROL,
-                    w_scan: 0,
-                    dw_flags: 0,
-                    time: 0,
-                    dw_extra_info: 0,
-                },
-            },
-        },
-        win32::INPUT {
-            r#type: win32::INPUT_KEYBOARD,
-            u: win32::INPUT_union {
-                ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_V,
-                    w_scan: 0,
-                    dw_flags: 0,
-                    time: 0,
-                    dw_extra_info: 0,
-                },
-            },
-        },
-        win32::INPUT {
-            r#type: win32::INPUT_KEYBOARD,
-            u: win32::INPUT_union {
-                ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_V,
-                    w_scan: 0,
-                    dw_flags: win32::KEYEVENTF_KEYUP,
-                    time: 0,
-                    dw_extra_info: 0,
-                },
-            },
-        },
-        win32::INPUT {
-            r#type: win32::INPUT_KEYBOARD,
-            u: win32::INPUT_union {
-                ki: win32::KEYBDINPUT {
-                    w_vk: win32::VK_CONTROL,
-                    w_scan: 0,
-                    dw_flags: win32::KEYEVENTF_KEYUP,
-                    time: 0,
-                    dw_extra_info: 0,
-                },
-            },
-        },
-    ];
-    unsafe {
-        win32::SendInput(
-            4,
-            inputs.as_ptr(),
-            std::mem::size_of::<win32::INPUT>() as i32,
-        )
+
+    let ctrl_pressed = unsafe {
+        (win32::GetKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0
     };
+
+    if ctrl_pressed {
+        // 物理的に Ctrl が押されている場合は、V の押し下げ・解放のみをシミュレートする
+        let inputs = [
+            win32::INPUT {
+                r#type: win32::INPUT_KEYBOARD,
+                u: win32::INPUT_union {
+                    ki: win32::KEYBDINPUT {
+                        w_vk: win32::VK_V,
+                        w_scan: 0,
+                        dw_flags: 0,
+                        time: 0,
+                        dw_extra_info: state::CLIPPER_MAGIC_INFO,
+                    },
+                },
+            },
+            win32::INPUT {
+                r#type: win32::INPUT_KEYBOARD,
+                u: win32::INPUT_union {
+                    ki: win32::KEYBDINPUT {
+                        w_vk: win32::VK_V,
+                        w_scan: 0,
+                        dw_flags: win32::KEYEVENTF_KEYUP,
+                        time: 0,
+                        dw_extra_info: state::CLIPPER_MAGIC_INFO,
+                    },
+                },
+            },
+        ];
+        unsafe {
+            win32::SendInput(
+                2,
+                inputs.as_ptr(),
+                std::mem::size_of::<win32::INPUT>() as i32,
+            )
+        };
+    } else {
+        // 物理的に Ctrl が押されていない場合は、Ctrl + V 全体をシミュレートする
+        let inputs = [
+            win32::INPUT {
+                r#type: win32::INPUT_KEYBOARD,
+                u: win32::INPUT_union {
+                    ki: win32::KEYBDINPUT {
+                        w_vk: win32::VK_CONTROL,
+                        w_scan: 0,
+                        dw_flags: 0,
+                        time: 0,
+                        dw_extra_info: state::CLIPPER_MAGIC_INFO,
+                    },
+                },
+            },
+            win32::INPUT {
+                r#type: win32::INPUT_KEYBOARD,
+                u: win32::INPUT_union {
+                    ki: win32::KEYBDINPUT {
+                        w_vk: win32::VK_V,
+                        w_scan: 0,
+                        dw_flags: 0,
+                        time: 0,
+                        dw_extra_info: state::CLIPPER_MAGIC_INFO,
+                    },
+                },
+            },
+            win32::INPUT {
+                r#type: win32::INPUT_KEYBOARD,
+                u: win32::INPUT_union {
+                    ki: win32::KEYBDINPUT {
+                        w_vk: win32::VK_V,
+                        w_scan: 0,
+                        dw_flags: win32::KEYEVENTF_KEYUP,
+                        time: 0,
+                        dw_extra_info: state::CLIPPER_MAGIC_INFO,
+                    },
+                },
+            },
+            win32::INPUT {
+                r#type: win32::INPUT_KEYBOARD,
+                u: win32::INPUT_union {
+                    ki: win32::KEYBDINPUT {
+                        w_vk: win32::VK_CONTROL,
+                        w_scan: 0,
+                        dw_flags: win32::KEYEVENTF_KEYUP,
+                        time: 0,
+                        dw_extra_info: state::CLIPPER_MAGIC_INFO,
+                    },
+                },
+            },
+        ];
+        unsafe {
+            win32::SendInput(
+                4,
+                inputs.as_ptr(),
+                std::mem::size_of::<win32::INPUT>() as i32,
+            )
+        };
+    }
 }
 
 pub fn update_tray_tip_and_icon(hwnd: win32::HWND) {
@@ -911,7 +954,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
-        show_notification("通常モード", "通常モードに戻りました。", false);
+        show_notification_ex("通常モード", "通常モードに戻りました。", false, true);
     } else if cmd == 1011 {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
@@ -971,33 +1014,239 @@ pub fn update_search_cue_banner() {
     }
 }
 
+use std::sync::Once;
+use std::sync::OnceLock;
+
+static REGISTER_APP_ID: Once = Once::new();
+static TOAST_SEQUENCE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static CACHED_ICON_PATH_LIGHT: OnceLock<Option<String>> = OnceLock::new();
+static CACHED_ICON_PATH_DARK: OnceLock<Option<String>> = OnceLock::new();
+
+/// トースト通知に必要な AppUserModelId をレジストリに登録します。
+/// Win32 API を直接使用して HKCU に書き込むため、PowerShell等の外部プロセスの起動がなく、
+/// コンソール画面のポップアップやパフォーマンスオーバーヘッドは一切ありません。
+pub fn register_app_id() {
+    REGISTER_APP_ID.call_once(|| {
+        unsafe {
+            let subkey = util::to_wstring("Software\\Classes\\AppUserModelId\\clipper");
+            let mut hkey = std::ptr::null_mut();
+            
+            let status = win32::RegCreateKeyExW(
+                win32::HKEY_CURRENT_USER,
+                subkey.as_ptr(),
+                0,
+                std::ptr::null(),
+                0,
+                win32::KEY_WRITE,
+                std::ptr::null(),
+                &mut hkey,
+                std::ptr::null_mut(),
+            );
+            
+            if status == 0 {
+                // アプリ名を表示名として登録
+                let value_name = util::to_wstring("DisplayName");
+                let value_data = util::to_wstring("Clipper");
+                let cb_data = (value_data.len() * 2) as u32;
+                
+                let _ = win32::RegSetValueExW(
+                    hkey,
+                    value_name.as_ptr(),
+                    0,
+                    win32::REG_SZ,
+                    value_data.as_ptr() as *const u8,
+                    cb_data,
+                );
+                
+                // タイトルバー用のアイコン絶対パスを登録
+                let is_sys_dark = crate::darkmode::is_system_dark_mode();
+                if let Some(icon_path) = get_icon_path(is_sys_dark) {
+                    let win_path = icon_path.replace('/', "\\");
+                    let icon_name = util::to_wstring("IconUri");
+                    let icon_data = util::to_wstring(&win_path);
+                    let cb_icon = (icon_data.len() * 2) as u32;
+                    
+                    let _ = win32::RegSetValueExW(
+                        hkey,
+                        icon_name.as_ptr(),
+                        0,
+                        win32::REG_SZ,
+                        icon_data.as_ptr() as *const u8,
+                        cb_icon,
+                    );
+                }
+                
+                win32::RegCloseKey(hkey);
+            }
+        }
+    });
+}
+
+/// トースト表示に使用するアプリのロゴ画像 (assets/app.png / assets/app_inverted.png) の絶対パスを取得します。
+/// 重いファイルシステムアクセスを避けるため、初回取得時に結果を `OnceLock` へキャッシュします。
+fn get_icon_path(is_dark: bool) -> Option<String> {
+    let cache = if is_dark {
+        &CACHED_ICON_PATH_DARK
+    } else {
+        &CACHED_ICON_PATH_LIGHT
+    };
+
+    cache.get_or_init(|| {
+        let file_name = if is_dark { "app_inverted.png" } else { "app.png" };
+        if let Ok(exe_path) = std::env::current_exe() {
+            let mut dir = exe_path.parent();
+            for _ in 0..4 {
+                if let Some(d) = dir {
+                    let candidate = d.join("assets").join(file_name);
+                    if candidate.exists() {
+                        if let Ok(abs_path) = candidate.canonicalize() {
+                            let abs_path_str = abs_path.to_string_lossy().to_string();
+                            let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                            return Some(clean_path.replace('\\', "/"));
+                        }
+                    }
+                    dir = d.parent();
+                } else {
+                    break;
+                }
+            }
+        }
+        if let Ok(current) = std::env::current_dir() {
+            let mut dir = Some(current.as_path());
+            for _ in 0..4 {
+                if let Some(d) = dir {
+                    let candidate = d.join("assets").join(file_name);
+                    if candidate.exists() {
+                        if let Ok(abs_path) = candidate.canonicalize() {
+                            let abs_path_str = abs_path.to_string_lossy().to_string();
+                            let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                            return Some(clean_path.replace('\\', "/"));
+                        }
+                    }
+                    dir = d.parent();
+                } else {
+                    break;
+                }
+            }
+        }
+        None
+    }).clone()
+}
+
+/// Windows Runtime (WinRT) API を用いてトースト通知を送信します。
+/// 送信前に古い Clipper の通知を `RemoveGroup` で即座に全削除し、
+/// 新しい通知をアトミックなシーケンスID付きのユニークなタグで送信します。
+/// 指定秒数経過後、自分のスレッドに対応するタグのみを消去することで競合を防ぎます。
+fn show_toast_notification(
+    title: &str,
+    msg: &str,
+    seconds: u64,
+    sound: bool,
+    _is_error: bool,
+) -> windows::core::Result<()> {
+    use windows::{
+        core::*,
+        Data::Xml::Dom::*,
+        UI::Notifications::*,
+    };
+
+    let app_id = HSTRING::from("clipper");
+    let group = HSTRING::from("clipper_group");
+
+    // 新しい通知を送信する前に、すでに表示されているClipperグループの古い通知をすべて即座に消去する
+    if let Ok(history) = ToastNotificationManager::History() {
+        let _ = history.RemoveGroup(&group);
+    }
+
+    // XML configuration
+    let duration = if seconds <= 7 { "short" } else { "long" };
+    let audio_xml = if sound { "" } else { "<audio silent=\"true\"/>" };
+
+    let is_sys_dark = crate::darkmode::is_system_dark_mode();
+    let mut image_xml = String::new();
+    if let Some(clean_path) = get_icon_path(is_sys_dark) {
+        image_xml = format!(r#"<image placement="appLogoOverride" src="file:///{}" />"#, clean_path);
+    }
+
+    let escaped_title = escape_xml(title);
+    let escaped_msg = escape_xml(msg);
+
+    let xml_string = format!(
+        r#"<toast duration="{}">
+            <visual>
+                <binding template="ToastGeneric">
+                    <text>{}</text>
+                    <text>{}</text>
+                    {}
+                </binding>
+            </visual>
+            {}
+        </toast>"#,
+        duration, escaped_title, escaped_msg, image_xml, audio_xml
+    );
+
+    let xml_doc = XmlDocument::new()?;
+    xml_doc.LoadXml(&HSTRING::from(xml_string))?;
+
+    // 一意のシーケンス番号を含めたタグを生成
+    let seq = TOAST_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tag = HSTRING::from(format!("clipper_tag_{}_{}", std::process::id(), seq));
+
+    let toast = ToastNotification::CreateToastNotification(&xml_doc)?;
+    toast.SetTag(&tag)?;
+    toast.SetGroup(&group)?;
+
+    let notifier = ToastNotificationManager::CreateToastNotifierWithId(&app_id)?;
+    notifier.Show(&toast)?;
+
+    if seconds > 0 {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        if let Ok(history) = ToastNotificationManager::History() {
+            // 自分自身が送信した特定のタグのみを削除する
+            let _ = history.RemoveGroupedTagWithId(&tag, &group, &app_id);
+        }
+    }
+
+    Ok(())
+}
+
+/// XML文字列用の特殊文字エスケープ処理
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+/// 設定に従ってトースト通知をバックグラウンドスレッドで送信します。
 pub fn show_notification(title: &str, message: &str, is_error: bool) {
+    show_notification_ex(title, message, is_error, false);
+}
+
+/// 強制的な通知音設定を伴う拡張版のトースト通知送信関数です。
+pub fn show_notification_ex(title: &str, message: &str, is_error: bool, force_sound: bool) {
+    let mut duration_secs = 5;
+    let mut sound = false;
+
     if let Some(config) = state::CONFIG.get() {
         if !config.show_notifications {
             return;
         }
+        duration_secs = config.notification_duration;
+        sound = config.notification_sound;
     }
 
-    if let Some(SafeHWND(hwnd)) = MAIN_HWND.get() {
-        let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-        nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
-        nid.hWnd = *hwnd;
-        nid.uID = 1;
-        nid.uFlags = win32::NIF_INFO;
-
-        let title_w = util::to_wstring(title);
-        let title_len = std::cmp::min(title_w.len(), 63);
-        nid.szInfoTitle[..title_len].copy_from_slice(&title_w[..title_len]);
-
-        let msg_w = util::to_wstring(message);
-        let msg_len = std::cmp::min(msg_w.len(), 255);
-        nid.szInfo[..msg_len].copy_from_slice(&msg_w[..msg_len]);
-
-        nid.dwInfoFlags = if is_error {
-            win32::NIIF_ERROR
-        } else {
-            win32::NIIF_INFO
-        };
-        unsafe { win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid) };
+    if force_sound {
+        sound = true;
     }
+
+    register_app_id();
+
+    let title_str = title.to_string();
+    let message_str = message.to_string();
+
+    std::thread::spawn(move || {
+        let _ = show_toast_notification(&title_str, &message_str, duration_secs, sound, is_error);
+    });
 }
