@@ -38,8 +38,15 @@ pub struct Config {
     pub exclude_apps: Vec<String>,
     #[serde(default = "default_sort_snippets")]
     pub sort_snippets: bool,
+    /// システムトレイやモード切替時のトースト通知を表示するかどうか
     #[serde(default = "default_show_notifications")]
     pub show_notifications: bool,
+    /// トースト通知が表示され続ける時間（秒数）
+    #[serde(default = "default_notification_duration")]
+    pub notification_duration: u64,
+    /// トースト通知が表示された際に効果音を鳴らすかどうか
+    #[serde(default = "default_notification_sound")]
+    pub notification_sound: bool,
 }
 
 fn default_max_history() -> usize {
@@ -83,8 +90,19 @@ fn default_sort_snippets() -> bool {
     false
 }
 
+/// 通知表示の可否のデフォルト値 (true)
 fn default_show_notifications() -> bool {
     true
+}
+
+/// 通知表示時間 (秒) のデフォルト値 (2秒)
+fn default_notification_duration() -> u64 {
+    2
+}
+
+/// 通知音の有無のデフォルト値 (false: 消音)
+fn default_notification_sound() -> bool {
+    false
 }
 
 impl Default for Config {
@@ -102,6 +120,8 @@ impl Default for Config {
             exclude_apps: default_exclude_apps(),
             sort_snippets: false,
             show_notifications: true,
+            notification_duration: 2,
+            notification_sound: false,
         }
     }
 }
@@ -131,15 +151,7 @@ impl Config {
         match fs::read_to_string(&path) {
             Ok(content) => match toml::from_str::<Config>(&content) {
                 Ok(config) => config,
-                Err(_) => {
-                    let mut backup_path = path.clone();
-                    backup_path.set_extension("toml.bak");
-                    let _ = fs::rename(&path, &backup_path);
-
-                    let default_config = Config::default();
-                    default_config.save();
-                    default_config
-                }
+                Err(_) => Config::default(),
             },
             Err(_) => Config::default(),
         }
@@ -180,6 +192,8 @@ mod tests {
         assert!(config.exclude_apps.contains(&"Bitwarden.exe".to_string()));
         assert_eq!(config.sort_snippets, false);
         assert_eq!(config.show_notifications, true);
+        assert_eq!(config.notification_duration, 2);
+        assert_eq!(config.notification_sound, false);
     }
 
     #[test]
@@ -197,6 +211,8 @@ mod tests {
             exclude_apps = ["test.exe"]
             sort_snippets = true
             show_notifications = false
+            notification_duration = 10
+            notification_sound = true
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -211,6 +227,8 @@ mod tests {
         assert_eq!(config.exclude_apps, vec!["test.exe".to_string()]);
         assert_eq!(config.sort_snippets, true);
         assert_eq!(config.show_notifications, false);
+        assert_eq!(config.notification_duration, 10);
+        assert_eq!(config.notification_sound, true);
     }
 
     #[test]

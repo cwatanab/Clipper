@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use crate::state::{
     LAST_KEY_TIME, LAST_KEY_VK, MAIN_HWND, MOUSE_HOOK, SafeHHOOK, SafeHWND, WM_HIDE_WINDOW,
-    WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, IS_SELF_PASTING, WM_FIFO_LIFO_PASTE, WM_TOGGLE_FIFO_LIFO,
+    WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_FIFO_LIFO_PASTE, WM_TOGGLE_FIFO_LIFO,
 };
 use crate::win32;
 
@@ -88,7 +88,7 @@ pub unsafe extern "system" fn keyboard_hook_proc(
             || wparam == win32::WM_SYSKEYDOWN as win32::WPARAM
         {
             let ctrl_pressed = unsafe {
-                (win32::GetKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0
+                (win32::GetAsyncKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0
             };
             let shift_pressed = unsafe {
                 (win32::GetKeyState(win32::VK_SHIFT as i32) & 0x8000u16 as i16) != 0
@@ -103,7 +103,7 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                     })
                 };
 
-                if is_fifo_lifo_active && !IS_SELF_PASTING.load(Ordering::Relaxed) {
+                if is_fifo_lifo_active && kbd.dw_extra_info != crate::state::CLIPPER_MAGIC_INFO {
                     if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
                         && !(*main_hwnd).is_null()
                     {

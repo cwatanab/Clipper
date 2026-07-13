@@ -254,6 +254,8 @@ mod windows {
     pub type HKEY = *mut c_void;
     pub const HKEY_CURRENT_USER: HKEY = 0x80000001 as HKEY;
     pub const KEY_READ: u32 = 0x20019;
+    pub const KEY_WRITE: u32 = 0x20006;
+    pub const REG_SZ: u32 = 1;
 
     pub const WM_CTLCOLOREDIT: u32 = 0x0133;
     pub const WM_CTLCOLORLISTBOX: u32 = 0x0134;
@@ -423,6 +425,7 @@ mod windows {
         pub fn LoadCursorW(hInstance: HINSTANCE, lpCursorName: *const u16) -> HCURSOR;
         pub fn LoadIconW(hInstance: HINSTANCE, lpIconName: *const u16) -> *mut c_void;
         pub fn GetKeyState(nVirtKey: i32) -> i16;
+        pub fn GetAsyncKeyState(vKey: i32) -> i16;
         pub fn IsDialogMessageW(hDlg: HWND, lpMsg: *const MSG) -> BOOL;
         pub fn SetWindowPos(
             hWnd: HWND,
@@ -605,6 +608,25 @@ mod windows {
             lpType: *mut u32,
             lpData: *mut u8,
             lpcbData: *mut u32,
+        ) -> i32;
+        pub fn RegCreateKeyExW(
+            hKey: HKEY,
+            lpSubKey: *const u16,
+            Reserved: u32,
+            lpClass: *const u16,
+            dwOptions: u32,
+            samDesired: u32,
+            lpSecurityAttributes: *const c_void,
+            phkResult: *mut HKEY,
+            lpdwDisposition: *mut u32,
+        ) -> i32;
+        pub fn RegSetValueExW(
+            hKey: HKEY,
+            lpValueName: *const u16,
+            Reserved: u32,
+            dwType: u32,
+            lpData: *const u8,
+            cbData: u32,
         ) -> i32;
         pub fn RegCloseKey(hKey: HKEY) -> i32;
     }

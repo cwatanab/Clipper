@@ -72,6 +72,9 @@ theme_mode = "auto"     # カラーテーマ ("auto": システム同期, "dark"
 snippet_key = "left_shift"  # 定型文呼び出しホットキー ("left_shift", "right_shift", "shift", "left_ctrl", "right_ctrl", "ctrl", "left_alt", "right_alt", "alt", "none")
 history_key = "left_ctrl"   # 履歴呼び出しホットキー ("left_shift", "right_shift", "shift", "left_ctrl", "right_ctrl", "ctrl", "left_alt", "right_alt", "alt", "none")
 exclude_apps = ["1Password.exe", "Bitwarden.exe", "KeePassXC.exe", "KeePass.exe"] # クリップボード履歴の収集対象から除外する実行ファイル名
+show_notifications = true   # トースト通知を有効にするかどうか (true/false)
+notification_duration = 2   # トースト通知の表示時間 (秒数、0を指定すると自動消去せず履歴に残します)
+notification_sound = false  # トースト通知時のサウンドの有無 (true/false)
 ```
 
 - **`exclude_apps`** (オプション): クリップボード履歴の収集対象から除外する実行ファイル名のリスト。

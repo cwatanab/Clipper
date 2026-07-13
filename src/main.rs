@@ -42,6 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     darkmode::apply();
 
+    // トースト通知用の AppUserModelId / IconUri を起動時に即座にレジストリ登録
+    ui::register_app_id();
+
     // Initialize COM for MSAA (IAccessible) caret position detection
     unsafe { win32::CoInitializeEx(std::ptr::null_mut(), win32::COINIT_APARTMENTTHREADED) };
 

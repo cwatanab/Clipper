@@ -1376,6 +1376,34 @@ pub unsafe extern "system" fn window_proc(
             ui::hide_window();
         }
         WM_FIFO_LIFO_PASTE => {
+            // [連打対策のディレイ制御]
+            // 前回のペースト処理完了から 150ms 以上経過するまで次の処理を遅延させます。
+            // これにより、OSのキーイベント配送やターゲットアプリのクリップボード読み込みラグを
+            // 安全に待機し、重複ペーストや文字 'v' の誤入力を完全に防止します。
+            static LAST_PASTE_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let last = LAST_PASTE_TIME.load(Ordering::Relaxed);
+            let diff = now.saturating_sub(last);
+
+            if diff < 150 {
+                // まだ 150ms 経過していない場合は、メインスレッドをスリープでブロックせず、
+                // 非同期のバックグラウンドスレッドで残余時間だけスリープした後に、
+                // 本ウィンドウプロシージャへ同じメッセージを再送（PostMessage）して遅延処理させます。
+                let hwnd_val = hwnd as isize;
+                let delay = 150 - diff;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                    unsafe {
+                        win32::PostMessageW(hwnd_val as win32::HWND, WM_FIFO_LIFO_PASTE, 0, 0);
+                    }
+                });
+                return 0; // メインスレッドでの現在の処理はスキップして即時リターンします
+            }
+            LAST_PASTE_TIME.store(now, Ordering::Relaxed);
+
             let text_to_paste = {
                 let mut state_guard = lock_state();
                 if let Some(state) = &mut *state_guard {
@@ -1408,12 +1436,7 @@ pub unsafe extern "system" fn window_proc(
                 }
 
                 if success {
-                    state::IS_SELF_PASTING.store(true, Ordering::Relaxed);
                     ui::simulate_paste();
-                    std::thread::spawn(|| {
-                        std::thread::sleep(std::time::Duration::from_millis(300));
-                        state::IS_SELF_PASTING.store(false, Ordering::Relaxed);
-                    });
                 }
 
                 ui::update_tray_tip_and_icon(hwnd);
@@ -1429,10 +1452,11 @@ pub unsafe extern "system" fn window_proc(
                     }
                     std::mem::drop(state_guard);
                     ui::update_tray_tip_and_icon(hwnd);
-                    ui::show_notification(
+                    ui::show_notification_ex(
                         "キューが空になりました",
                         "FIFO/LIFOペーストが完了し、通常モードに戻りました。",
                         false,
+                        true,
                     );
                 }
             }
@@ -1475,7 +1499,11 @@ pub unsafe extern "system" fn window_proc(
                 FifoLifoMode::None => "通常モードに戻りました。",
             };
 
-            ui::show_notification(notification_title, notification_body, false);
+            if new_mode == FifoLifoMode::None {
+                ui::show_notification_ex(notification_title, notification_body, false, true);
+            } else {
+                ui::show_notification(notification_title, notification_body, false);
+            }
         }
         win32::WM_CLIPBOARDUPDATE => {
             let is_excluded = if let Some(active_app) = util::get_active_process_name() {
