@@ -96,7 +96,6 @@ fn get_compiled_regex(query_text: &str, dict_opt: Option<&CompactDictionary>) ->
     regex
 }
 
-
 pub fn filter_items(
     query_text: &str,
     state: &AppState,
@@ -137,7 +136,9 @@ pub fn filter_items(
                     }
                 }
 
-                let sort_snippets = crate::state::CONFIG.get().map_or(false, |c| c.sort_snippets);
+                let sort_snippets = crate::state::CONFIG
+                    .get()
+                    .map_or(false, |c| c.sort_snippets);
 
                 // Add subdirectories (always sorted)
                 let mut folders: Vec<String> = folder_names.into_iter().collect();
@@ -189,7 +190,6 @@ pub fn filter_items(
         }
     };
 
-
     let mut display_items = Vec::new();
     let mut full_paths = Vec::new();
 
@@ -227,7 +227,9 @@ pub fn filter_items(
                 full_paths.push("..".to_string());
             }
 
-            let sort_snippets = crate::state::CONFIG.get().map_or(false, |c| c.sort_snippets);
+            let sort_snippets = crate::state::CONFIG
+                .get()
+                .map_or(false, |c| c.sort_snippets);
 
             let mut folders_matches = Vec::new();
             for f in folder_names {
@@ -352,12 +354,24 @@ mod tests {
 
         let (display_items, _) = filter_items("", &state, None);
 
-        let zebra_idx = display_items.iter().position(|x| x == "[SNIP] zebra" || x == "[SNIP] Zebra");
-        let apple_idx = display_items.iter().position(|x| x == "[SNIP] apple" || x == "[SNIP] Apple");
+        let zebra_idx = display_items
+            .iter()
+            .position(|x| x == "[SNIP] zebra" || x == "[SNIP] Zebra");
+        let apple_idx = display_items
+            .iter()
+            .position(|x| x == "[SNIP] apple" || x == "[SNIP] Apple");
 
-        assert!(zebra_idx.is_some(), "Zebra/zebra should be in display items");
-        assert!(apple_idx.is_some(), "Apple/apple should be in display items");
-        assert!(zebra_idx.unwrap() < apple_idx.unwrap(), "Zebra/zebra should come before Apple/apple in natural order");
+        assert!(
+            zebra_idx.is_some(),
+            "Zebra/zebra should be in display items"
+        );
+        assert!(
+            apple_idx.is_some(),
+            "Apple/apple should be in display items"
+        );
+        assert!(
+            zebra_idx.unwrap() < apple_idx.unwrap(),
+            "Zebra/zebra should come before Apple/apple in natural order"
+        );
     }
 }
-
