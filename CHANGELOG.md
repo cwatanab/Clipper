@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-07-13
+
+### Added
+- **トースト通知のテーマ別アイコン対応**: Windows 10/11 のトースト通知（WinRT API）に表示されるロゴ画像および送信元アイコンを、OSのシステムカラー設定（ライト/ダーク）と連動して自動で切り替える機能を追加しました。
+- ダークモード表示用の白基調透過アイコン `assets/app_inverted.png` をアセットに追加しました。
+
+### Changed
+- **アイコンパス探索処理の改善**: `get_icon_path` 関数が、実行ファイルの親ディレクトリを最大4階層まで遡って探索するように変更。これにより、開発環境 (`target/release/`) からの実行や本番環境（インストール先フォルダ）のどちらから起動した場合でも、トースト通知用の画像を確実に検出し絶対パスを取得できるようになりました。
+- **FIFO/LIFOペーストの連打防止制御**: 前回のペースト完了から 150ms 未満の連続ペースト要求を検知した際、メインスレッドをブロックせず、非同期バックグラウンドで残余時間分だけ遅延させてから処理を再送（PostMessage）する制御を導入しました。これにより、OSのキー配送遅延に伴う重複ペーストや文字 'v' が誤入力される不具合を防止します。
+
+### Fixed
+- **トースト通知のアイコン不表示バグの修正**: トースト通知の画像URIに Windows でサポートされていない `.ico` 形式が指定されていたため、アイコンが空白になる不具合を、透過 PNG を指定するようにして修正しました。
+- **完了通知の通知音強制化**: FIFO/LIFO モードの完了およびリセット通知時に限り、設定の通知音の有無にかかわらず完了音を強制再生し、モード終了が聴覚的に確実に伝わるように改善しました。
+
 ## [0.1.11] - 2026-07-13
 
 ### Added
@@ -52,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.1.12]: https://github.com/cwatanab/Clipper/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/cwatanab/Clipper/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/cwatanab/Clipper/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/cwatanab/Clipper/compare/v0.1.8...v0.1.9
