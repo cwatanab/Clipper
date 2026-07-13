@@ -10,11 +10,20 @@ pub const WM_TRIGGER_SNIPPET: u32 = 0x8000 + 2;
 pub const WM_TRIGGER_HISTORY: u32 = 0x8000 + 3;
 pub const WM_FILTER_COMPLETE: u32 = 0x8000 + 5;
 pub const WM_HIDE_WINDOW: u32 = 0x8000 + 6;
+pub const WM_FIFO_LIFO_PASTE: u32 = 0x8000 + 7;
+pub const WM_TOGGLE_FIFO_LIFO: u32 = 0x8000 + 8;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Mode {
     Snippet,
     History,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum FifoLifoMode {
+    None,
+    Fifo,
+    Lifo,
 }
 
 use std::sync::Arc;
@@ -33,6 +42,8 @@ pub struct AppState {
     pub current_folder: String,
     pub top_index: usize,
     pub filter_generation: u32,
+    pub fifo_lifo_mode: FifoLifoMode,
+    pub fifo_lifo_queue: VecDeque<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -67,6 +78,7 @@ pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
 pub static OTHER_KEY_PRESSED: AtomicBool = AtomicBool::new(false);
 pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
 pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
+pub static IS_SELF_PASTING: AtomicBool = AtomicBool::new(false);
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
 /// Poison-safe lock helper for APP_STATE.

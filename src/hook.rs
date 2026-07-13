@@ -2,7 +2,7 @@ use std::sync::atomic::Ordering;
 
 use crate::state::{
     LAST_KEY_TIME, LAST_KEY_VK, MAIN_HWND, MOUSE_HOOK, SafeHHOOK, SafeHWND, WM_HIDE_WINDOW,
-    WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET,
+    WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, IS_SELF_PASTING, WM_FIFO_LIFO_PASTE, WM_TOGGLE_FIFO_LIFO,
 };
 use crate::win32;
 
@@ -87,6 +87,66 @@ pub unsafe extern "system" fn keyboard_hook_proc(
         } else if wparam == win32::WM_KEYDOWN as win32::WPARAM
             || wparam == win32::WM_SYSKEYDOWN as win32::WPARAM
         {
+            let ctrl_pressed = unsafe {
+                (win32::GetKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0
+            };
+            let shift_pressed = unsafe {
+                (win32::GetKeyState(win32::VK_SHIFT as i32) & 0x8000u16 as i16) != 0
+            };
+
+            // Ctrl + V が押され、且つ FIFO/LIFO モードが有効でキューが空でない場合
+            if vk == 0x56 /* VK_V */ && ctrl_pressed {
+                let is_fifo_lifo_active = {
+                    let state_guard = crate::state::lock_state();
+                    state_guard.as_ref().map_or(false, |s| {
+                        s.fifo_lifo_mode != crate::state::FifoLifoMode::None && !s.fifo_lifo_queue.is_empty()
+                    })
+                };
+
+                if is_fifo_lifo_active && !IS_SELF_PASTING.load(Ordering::Relaxed) {
+                    if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
+                        && !(*main_hwnd).is_null()
+                    {
+                        unsafe {
+                            win32::PostMessageW(*main_hwnd, WM_FIFO_LIFO_PASTE, 0, 0);
+                        }
+                    }
+                    return 1; // キー入力を消費
+                }
+            }
+
+            // Ctrl + Shift + F / L / Q / C (ホットキーでのモード切り替え)
+            if ctrl_pressed && shift_pressed {
+                if vk == 0x46 /* 'F' */ {
+                    if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
+                        && !(*main_hwnd).is_null()
+                    {
+                        unsafe {
+                            win32::PostMessageW(*main_hwnd, WM_TOGGLE_FIFO_LIFO, 1, 0);
+                        }
+                    }
+                    return 1;
+                } else if vk == 0x4C /* 'L' */ {
+                    if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
+                        && !(*main_hwnd).is_null()
+                    {
+                        unsafe {
+                            win32::PostMessageW(*main_hwnd, WM_TOGGLE_FIFO_LIFO, 2, 0);
+                        }
+                    }
+                    return 1;
+                } else if vk == 0x51 /* 'Q' */ || vk == 0x43 /* 'C' */ {
+                    if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
+                        && !(*main_hwnd).is_null()
+                    {
+                        unsafe {
+                            win32::PostMessageW(*main_hwnd, WM_TOGGLE_FIFO_LIFO, 0, 0);
+                        }
+                    }
+                    return 1;
+                }
+            }
+
             let is_snippet = matches_key(vk, &snippet_key);
             let is_history = matches_key(vk, &history_key);
             if is_snippet || is_history {

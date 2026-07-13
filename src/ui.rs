@@ -59,6 +59,8 @@ pub fn update_listbox_items() {
                 current_folder,
                 top_index: 0,
                 filter_generation: generation,
+                fifo_lifo_mode: state::FifoLifoMode::None,
+                fifo_lifo_queue: std::collections::VecDeque::new(),
             };
 
             let dict = state::get_migemo_dict();
@@ -241,17 +243,26 @@ pub fn delete_selected_item() {
             }
 
             if is_history && !target_text.is_empty() {
-                let mut state_guard = lock_state();
-                if let Some(state) = &mut *state_guard {
-                    let history = std::sync::Arc::make_mut(&mut state.history);
-                    if let Some(pos) = history.iter().position(|x| x == &target_text) {
-                        history.remove(pos);
-                        if state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed) {
-                            util::save_history(history);
+                let mut history_to_save = None;
+                {
+                    let mut state_guard = lock_state();
+                    if let Some(state) = &mut *state_guard {
+                        let history = std::sync::Arc::make_mut(&mut state.history);
+                        if let Some(pos) = history.iter().position(|x| x == &target_text) {
+                            history.remove(pos);
+                            if state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+                                history_to_save = Some(std::sync::Arc::clone(&state.history));
+                            }
                         }
                     }
                 }
-                std::mem::drop(state_guard);
+
+                if let Some(history_arc) = history_to_save {
+                    std::thread::spawn(move || {
+                        util::save_history(&history_arc);
+                    });
+                }
+
 
                 update_listbox_items();
 
@@ -630,6 +641,38 @@ pub fn simulate_paste() {
     };
 }
 
+pub fn update_tray_tip_and_icon(hwnd: win32::HWND) {
+    let (mode, queue_len) = {
+        let state_guard = lock_state();
+        if let Some(state) = &*state_guard {
+            (state.fifo_lifo_mode, state.fifo_lifo_queue.len())
+        } else {
+            (state::FifoLifoMode::None, 0)
+        }
+    };
+
+    let version = env!("CARGO_PKG_VERSION");
+    let tip_text = match mode {
+        state::FifoLifoMode::None => format!("Clipper v{}", version),
+        state::FifoLifoMode::Fifo => format!("Clipper v{} [FIFO: {} items]", version, queue_len),
+        state::FifoLifoMode::Lifo => format!("Clipper v{} [LIFO: {} items]", version, queue_len),
+    };
+
+    let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+    nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = win32::NIF_TIP;
+
+    let tip_w = util::to_wstring(&tip_text);
+    let tip_len = std::cmp::min(tip_w.len(), 127);
+    nid.szTip[..tip_len].copy_from_slice(&tip_w[..tip_len]);
+
+    unsafe {
+        win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid);
+    }
+}
+
 pub fn show_tray_menu(hwnd: win32::HWND) {
     let mut pt = win32::POINT { x: 0, y: 0 };
     unsafe { win32::GetCursorPos(&mut pt) };
@@ -683,6 +726,51 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("履歴をクリア").as_ptr(),
         );
 
+        // FIFO / LIFO モードのメニュー項目
+        let current_mode = {
+            let state_guard = lock_state();
+            state_guard.as_ref().map(|s| s.fifo_lifo_mode).unwrap_or(state::FifoLifoMode::None)
+        };
+        let queue_len = {
+            let state_guard = lock_state();
+            state_guard.as_ref().map(|s| s.fifo_lifo_queue.len()).unwrap_or(0)
+        };
+
+        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
+
+        let check_none = if current_mode == state::FifoLifoMode::None { win32::MF_CHECKED } else { win32::MF_UNCHECKED };
+        win32::AppendMenuW(
+            menu,
+            check_none,
+            1010,
+            util::to_wstring("通常モード").as_ptr(),
+        );
+
+        let check_fifo = if current_mode == state::FifoLifoMode::Fifo { win32::MF_CHECKED } else { win32::MF_UNCHECKED };
+        win32::AppendMenuW(
+            menu,
+            check_fifo,
+            1011,
+            util::to_wstring(&format!("FIFO モード ({})", queue_len)).as_ptr(),
+        );
+
+        let check_lifo = if current_mode == state::FifoLifoMode::Lifo { win32::MF_CHECKED } else { win32::MF_UNCHECKED };
+        win32::AppendMenuW(
+            menu,
+            check_lifo,
+            1012,
+            util::to_wstring(&format!("LIFO モード ({})", queue_len)).as_ptr(),
+        );
+
+        if queue_len > 0 {
+            win32::AppendMenuW(
+                menu,
+                0,
+                1013,
+                util::to_wstring("キューをクリア").as_ptr(),
+            );
+        }
+
         win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
 
         // Exit
@@ -728,19 +816,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                 0
             }
         };
-        let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-        nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
-        nid.hWnd = hwnd;
-        nid.uID = 1;
-        nid.uFlags = win32::NIF_INFO;
-        let title_w = util::to_wstring("Clipper");
-        let title_len = std::cmp::min(title_w.len(), 63);
-        nid.szInfoTitle[..title_len].copy_from_slice(&title_w[..title_len]);
-        let msg_w = util::to_wstring(&format!("スニペットを再読み込みしました（{}件）", count));
-        let msg_len = std::cmp::min(msg_w.len(), 255);
-        nid.szInfo[..msg_len].copy_from_slice(&msg_w[..msg_len]);
-        nid.dwInfoFlags = win32::NIIF_INFO;
-        unsafe { win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid) };
+        show_notification(
+            "Clipper",
+            &format!("スニペットを再読み込みしました（{}件）", count),
+            false,
+        );
     } else if cmd == 1007 {
         let version = env!("CARGO_PKG_VERSION");
         let title_w = util::to_wstring(&format!("Clipper v{}", version));
@@ -749,6 +829,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             【簡単な使い方】\n\
             ・Shiftキーを2回連打: スニペット検索ウィンドウを表示\n\
             ・Ctrlキーを2回連打: クリップボード履歴ウィンドウを表示\n\n\
+            【FIFO/LIFO モード】\n\
+            ・Ctrl+Shift+F: FIFOモードのON/OFF\n\
+            ・Ctrl+Shift+L: LIFOモードのON/OFF\n\
+            ・Ctrl+Shift+C: キューのクリアと終了\n\n\
+            ※モード中にコピーすると自動的にキューに蓄積され、Ctrl+Vで順次ペーストできます。\n\n\
             ・候補選択: ↑ / ↓ または Ctrl+P / Ctrl+N\n\
             ・自動ペースト: Enterキー\n\
             ・閉じる: Escキー または ウィンドウ外をクリック",
@@ -781,7 +866,9 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                     .map(|s| std::sync::Arc::clone(&s.history))
             };
             if let Some(history_arc) = history_to_save {
-                util::save_history(&history_arc);
+                std::thread::spawn(move || {
+                    util::save_history(&history_arc);
+                });
             }
         }
     } else if cmd == 1009 {
@@ -806,26 +893,49 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             std::mem::drop(state_guard);
 
             // Persist empty history to disk
-            util::save_history(&std::collections::VecDeque::new());
+            std::thread::spawn(move || {
+                util::save_history(&std::collections::VecDeque::new());
+            });
 
             // Update UI listbox if visible
             update_listbox_items();
 
             // Display balloon notification
-            let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
-            nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
-            nid.hWnd = hwnd;
-            nid.uID = 1;
-            nid.uFlags = win32::NIF_INFO;
-            let title_w = util::to_wstring("Clipper");
-            let title_len = std::cmp::min(title_w.len(), 63);
-            nid.szInfoTitle[..title_len].copy_from_slice(&title_w[..title_len]);
-            let msg_w = util::to_wstring("履歴をクリアしました");
-            let msg_len = std::cmp::min(msg_w.len(), 255);
-            nid.szInfo[..msg_len].copy_from_slice(&msg_w[..msg_len]);
-            nid.dwInfoFlags = win32::NIIF_INFO;
-            unsafe { win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid) };
+            show_notification("Clipper", "履歴をクリアしました", false);
         }
+    } else if cmd == 1010 {
+        let mut state_guard = lock_state();
+        if let Some(state) = &mut *state_guard {
+            state.fifo_lifo_mode = state::FifoLifoMode::None;
+            state.fifo_lifo_queue.clear();
+        }
+        std::mem::drop(state_guard);
+        update_tray_tip_and_icon(hwnd);
+        show_notification("通常モード", "通常モードに戻りました。", false);
+    } else if cmd == 1011 {
+        let mut state_guard = lock_state();
+        if let Some(state) = &mut *state_guard {
+            state.fifo_lifo_mode = state::FifoLifoMode::Fifo;
+        }
+        std::mem::drop(state_guard);
+        update_tray_tip_and_icon(hwnd);
+        show_notification("FIFO モード開始", "コピーしたデータが古い順にペーストされます。\n(Ctrl+Shift+F で解除)", false);
+    } else if cmd == 1012 {
+        let mut state_guard = lock_state();
+        if let Some(state) = &mut *state_guard {
+            state.fifo_lifo_mode = state::FifoLifoMode::Lifo;
+        }
+        std::mem::drop(state_guard);
+        update_tray_tip_and_icon(hwnd);
+        show_notification("LIFO モード開始", "コピーしたデータが新しい順にペーストされます。\n(Ctrl+Shift+L で解除)", false);
+    } else if cmd == 1013 {
+        let mut state_guard = lock_state();
+        if let Some(state) = &mut *state_guard {
+            state.fifo_lifo_queue.clear();
+        }
+        std::mem::drop(state_guard);
+        update_tray_tip_and_icon(hwnd);
+        show_notification("キューをクリア", "蓄積されたコピーデータをクリアしました。", false);
     } else if cmd == 1003 {
         unsafe { win32::PostQuitMessage(0) };
     }
@@ -862,6 +972,12 @@ pub fn update_search_cue_banner() {
 }
 
 pub fn show_notification(title: &str, message: &str, is_error: bool) {
+    if let Some(config) = state::CONFIG.get() {
+        if !config.show_notifications {
+            return;
+        }
+    }
+
     if let Some(SafeHWND(hwnd)) = MAIN_HWND.get() {
         let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
         nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;

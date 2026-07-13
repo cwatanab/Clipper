@@ -1,6 +1,6 @@
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
-use regex::RegexBuilder;
+use regex::{Regex, RegexBuilder};
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
 use rustmigemo::migemo::query::query;
 use rustmigemo::migemo::regex_generator::RegexOperator;
@@ -13,6 +13,89 @@ static ROMAJI_PROCESSOR: OnceLock<RomajiProcessor> = OnceLock::new();
 fn get_romaji_processor() -> &'static RomajiProcessor {
     ROMAJI_PROCESSOR.get_or_init(RomajiProcessor::new)
 }
+
+struct CachedRegex {
+    query: String,
+    has_dict: bool,
+    regex: Option<Regex>,
+}
+
+static REGEX_CACHE: Mutex<Vec<CachedRegex>> = Mutex::new(Vec::new());
+
+fn get_compiled_regex(query_text: &str, dict_opt: Option<&CompactDictionary>) -> Option<Regex> {
+    let has_dict = dict_opt.is_some();
+    {
+        let mut cache = REGEX_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pos) = cache
+            .iter()
+            .position(|c| c.query == query_text && c.has_dict == has_dict)
+        {
+            let entry = cache.remove(pos);
+            let regex = entry.regex.clone();
+            cache.insert(0, entry); // Move to MRU position
+            return regex;
+        }
+    }
+
+    let mut regex_parts = Vec::new();
+
+    // 1. Add Migemo query regex if dictionary is available
+    if let Some(dict) = dict_opt {
+        let migemo_re = query(query_text.to_string(), dict, &RegexOperator::Default);
+        if !migemo_re.is_empty() {
+            regex_parts.push(migemo_re);
+        }
+    }
+
+    // 2. Add literal query escaped
+    regex_parts.push(regex::escape(query_text));
+
+    // 3. Add Hiragana/Katakana escaped if applicable
+    let romaji_proc = get_romaji_processor();
+    let hiragana = romaji_proc.romaji_to_hiragana(query_text);
+    let check_hira = !hiragana.is_empty() && hiragana != query_text;
+    if check_hira {
+        regex_parts.push(regex::escape(&hiragana));
+
+        let katakana: String = hiragana
+            .chars()
+            .map(|c| {
+                if ('ぁ'..='ん').contains(&c) {
+                    char::from_u32(c as u32 + 0x60).unwrap_or(c)
+                } else {
+                    c
+                }
+            })
+            .collect();
+        if !katakana.is_empty() && katakana != hiragana {
+            regex_parts.push(regex::escape(&katakana));
+        }
+    }
+
+    // Combine them with OR operator
+    let combined_pattern = regex_parts.join("|");
+
+    let regex = RegexBuilder::new(&combined_pattern)
+        .case_insensitive(true)
+        .build()
+        .ok();
+
+    let mut cache = REGEX_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    cache.insert(
+        0,
+        CachedRegex {
+            query: query_text.to_string(),
+            has_dict,
+            regex: regex.clone(),
+        },
+    );
+    if cache.len() > 16 {
+        cache.pop();
+    }
+
+    regex
+}
+
 
 pub fn filter_items(
     query_text: &str,
@@ -93,48 +176,7 @@ pub fn filter_items(
         };
     }
 
-    let mut regex_parts = Vec::new();
-
-    // 1. Add Migemo query regex if dictionary is available
-    if let Some(dict) = dict_opt {
-        let migemo_re = query(query_text.to_string(), dict, &RegexOperator::Default);
-        if !migemo_re.is_empty() {
-            regex_parts.push(migemo_re);
-        }
-    }
-
-    // 2. Add literal query escaped
-    regex_parts.push(regex::escape(query_text));
-
-    // 3. Add Hiragana/Katakana escaped if applicable
-    let romaji_proc = get_romaji_processor();
-    let hiragana = romaji_proc.romaji_to_hiragana(query_text);
-    let check_hira = !hiragana.is_empty() && hiragana != query_text;
-    if check_hira {
-        regex_parts.push(regex::escape(&hiragana));
-
-        let katakana: String = hiragana
-            .chars()
-            .map(|c| {
-                if ('ぁ'..='ん').contains(&c) {
-                    char::from_u32(c as u32 + 0x60).unwrap_or(c)
-                } else {
-                    c
-                }
-            })
-            .collect();
-        if !katakana.is_empty() && katakana != hiragana {
-            regex_parts.push(regex::escape(&katakana));
-        }
-    }
-
-    // Combine them with OR operator
-    let combined_pattern = regex_parts.join("|");
-
-    let re_opt = RegexBuilder::new(&combined_pattern)
-        .case_insensitive(true)
-        .build()
-        .ok();
+    let re_opt = get_compiled_regex(query_text, dict_opt);
 
     let query_lower = query_text.to_lowercase();
 
@@ -146,6 +188,7 @@ pub fn filter_items(
             text.to_lowercase().contains(&query_lower)
         }
     };
+
 
     let mut display_items = Vec::new();
     let mut full_paths = Vec::new();
@@ -236,21 +279,33 @@ pub fn filter_items(
 }
 
 fn clean_history_item(s: &str) -> String {
+    const MAX_LEN: usize = 200;
+
     let has_control = s
         .as_bytes()
         .iter()
         .any(|&b| b == b'\r' || b == b'\n' || b == b'\t');
+
     if !has_control {
-        let mut clean = String::with_capacity("[HIST] ".len() + s.len());
-        clean.push_str("[HIST] ");
-        clean.push_str(s);
-        return clean;
+        if s.chars().count() <= MAX_LEN {
+            let mut clean = String::with_capacity("[HIST] ".len() + s.len());
+            clean.push_str("[HIST] ");
+            clean.push_str(s);
+            return clean;
+        }
     }
 
-    let mut clean = String::with_capacity("[HIST] ".len() + s.len());
+    let mut clean = String::with_capacity("[HIST] ".len() + MAX_LEN + 3);
     clean.push_str("[HIST] ");
     let mut chars = s.chars().peekable();
+    let mut count = 0;
+    let mut truncated = false;
+
     while let Some(c) = chars.next() {
+        if count >= MAX_LEN {
+            truncated = true;
+            break;
+        }
         if c == '\r' && chars.peek() == Some(&'\n') {
             chars.next(); // consume \n
             clean.push(' ');
@@ -259,6 +314,11 @@ fn clean_history_item(s: &str) -> String {
         } else {
             clean.push(c);
         }
+        count += 1;
+    }
+
+    if truncated {
+        clean.push_str("...");
     }
     clean
 }
@@ -286,6 +346,8 @@ mod tests {
             current_folder: String::new(),
             top_index: 0,
             filter_generation: 0,
+            fifo_lifo_mode: crate::state::FifoLifoMode::None,
+            fifo_lifo_queue: std::collections::VecDeque::new(),
         };
 
         let (display_items, _) = filter_items("", &state, None);
