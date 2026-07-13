@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-13
+
+### Added
+- **検索バーへのクリアボタン（×）の追加**: 検索バーの右端にクエリをワンクリックでクリアできる「クリアボタン」を実装しました。検索バーにテキストが入力されているときのみ表示されます。
+- **各種ベクターアイコンの最適化**: スニペットのドキュメント、フォルダー、クリアボタンなどの各種アイコンデザインや描画処理、表示アライメントを更新・最適化しました。
+
+### Fixed
+- **履歴ウィンドウでのDELキー長押しのキーリピート対応および同期削除処理への改善**: DELキーを長押しした際、キーリピートが正しく反映されて高速にアイテムが削除されるように処理を同期化しました。メモリ上での一括削除とリストボックスの項目差分削除（`LB_DELETESTRING`）を同期処理し、`WM_SETREDRAW` による再描画抑制を導入することで、画面のチラつきやスクロール位置（`top_index`）のリセットによるガタつき（ジャンプ）を防止しました。
+- **リストボックスにフォーカスがあるときのDELキー処理の追加**: リストボックス側がフォーカスを持っている状態からでも、DELキー（およびその長押し）によるアイテムの削除が正しく機能するようにハンドラーを追加しました。
+- **選択変更・スクロール時のAltショートカット番号の同期描画ズレの修正**: カーソルキーで項目を移動したときやスクロールが発生した際に、ショートカットキーキャップ（Alt + 1..9, 0, A..Z）の表示番号が崩れて画面に残ってしまう不具合を解消しました。リストボックスだけでなく親ウィンドウ（メインウィンドウ）に対しても背景消去付きの再描画要求（`InvalidateRect`）を一斉に送信することで、表示内容の再描画を常にスクロール後の正しいインデックス値に強制同期させました。
+
 ## [0.1.12] - 2026-07-13
 
 ### Added
@@ -66,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.2.0]: https://github.com/cwatanab/Clipper/compare/v0.1.12...v0.2.0
 [0.1.12]: https://github.com/cwatanab/Clipper/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/cwatanab/Clipper/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/cwatanab/Clipper/compare/v0.1.9...v0.1.10

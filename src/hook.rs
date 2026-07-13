@@ -1,8 +1,8 @@
 use std::sync::atomic::Ordering;
 
 use crate::state::{
-    LAST_KEY_TIME, LAST_KEY_VK, MAIN_HWND, MOUSE_HOOK, SafeHHOOK, SafeHWND, WM_HIDE_WINDOW,
-    WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, WM_FIFO_LIFO_PASTE, WM_TOGGLE_FIFO_LIFO,
+    LAST_KEY_TIME, LAST_KEY_VK, MAIN_HWND, MOUSE_HOOK, SafeHHOOK, SafeHWND, WM_FIFO_LIFO_PASTE,
+    WM_HIDE_WINDOW, WM_TOGGLE_FIFO_LIFO, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET,
 };
 use crate::win32;
 
@@ -12,7 +12,9 @@ fn matches_key(vk: u16, key_name: &str) -> bool {
         "shift" => vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT,
         "lshift" | "left_shift" => vk == win32::VK_LSHIFT,
         "rshift" | "right_shift" => vk == win32::VK_RSHIFT,
-        "ctrl" | "control" => vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL,
+        "ctrl" | "control" => {
+            vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL
+        }
         "lctrl" | "left_ctrl" | "lcontrol" | "left_control" => vk == win32::VK_LCONTROL,
         "rctrl" | "right_ctrl" | "rcontrol" | "right_control" => vk == win32::VK_RCONTROL,
         "alt" | "menu" => vk == win32::VK_MENU || vk == win32::VK_LMENU || vk == win32::VK_RMENU,
@@ -37,8 +39,15 @@ pub unsafe extern "system" fn keyboard_hook_proc(
             kbd.time
         };
 
-        let (snippet_key, history_key, double_tap_ms) = crate::state::CONFIG.get()
-            .map(|c| (c.snippet_key.clone(), c.history_key.clone(), c.double_tap_ms))
+        let (snippet_key, history_key, double_tap_ms) = crate::state::CONFIG
+            .get()
+            .map(|c| {
+                (
+                    c.snippet_key.clone(),
+                    c.history_key.clone(),
+                    c.double_tap_ms,
+                )
+            })
             .unwrap_or_else(|| ("left_shift".to_string(), "left_ctrl".to_string(), 500));
 
         if wparam == win32::WM_KEYUP as win32::WPARAM
@@ -70,7 +79,12 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                                 WM_TRIGGER_HISTORY
                             };
                             unsafe {
-                                win32::PostMessageW(*main_hwnd, msg, active_hwnd as win32::WPARAM, 0)
+                                win32::PostMessageW(
+                                    *main_hwnd,
+                                    msg,
+                                    active_hwnd as win32::WPARAM,
+                                    0,
+                                )
                             };
                         }
                         LAST_KEY_VK.store(0, Ordering::Relaxed);
@@ -90,16 +104,16 @@ pub unsafe extern "system" fn keyboard_hook_proc(
             let ctrl_pressed = unsafe {
                 (win32::GetAsyncKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0
             };
-            let shift_pressed = unsafe {
-                (win32::GetKeyState(win32::VK_SHIFT as i32) & 0x8000u16 as i16) != 0
-            };
+            let shift_pressed =
+                unsafe { (win32::GetKeyState(win32::VK_SHIFT as i32) & 0x8000u16 as i16) != 0 };
 
             // Ctrl + V が押され、且つ FIFO/LIFO モードが有効でキューが空でない場合
             if vk == 0x56 /* VK_V */ && ctrl_pressed {
                 let is_fifo_lifo_active = {
                     let state_guard = crate::state::lock_state();
                     state_guard.as_ref().map_or(false, |s| {
-                        s.fifo_lifo_mode != crate::state::FifoLifoMode::None && !s.fifo_lifo_queue.is_empty()
+                        s.fifo_lifo_mode != crate::state::FifoLifoMode::None
+                            && !s.fifo_lifo_queue.is_empty()
                     })
                 };
 
@@ -117,7 +131,9 @@ pub unsafe extern "system" fn keyboard_hook_proc(
 
             // Ctrl + Shift + F / L / Q / C (ホットキーでのモード切り替え)
             if ctrl_pressed && shift_pressed {
-                if vk == 0x46 /* 'F' */ {
+                if vk == 0x46
+                /* 'F' */
+                {
                     if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
                         && !(*main_hwnd).is_null()
                     {
@@ -126,7 +142,9 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                         }
                     }
                     return 1;
-                } else if vk == 0x4C /* 'L' */ {
+                } else if vk == 0x4C
+                /* 'L' */
+                {
                     if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
                         && !(*main_hwnd).is_null()
                     {
@@ -135,7 +153,9 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                         }
                     }
                     return 1;
-                } else if vk == 0x51 /* 'Q' */ || vk == 0x43 /* 'C' */ {
+                } else if vk == 0x51 /* 'Q' */ || vk == 0x43
+                /* 'C' */
+                {
                     if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
                         && !(*main_hwnd).is_null()
                     {

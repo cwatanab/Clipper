@@ -108,6 +108,14 @@ pub fn move_listbox_selection(dir: i32) {
             };
             unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, next as usize, 0) };
             crate::wndproc::update_top_index();
+            unsafe {
+                win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
+            }
+            if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+                unsafe {
+                    win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
+                }
+            }
         }
     }
 }
@@ -225,63 +233,109 @@ pub fn on_select() {
     }
 }
 
-pub fn delete_selected_item() {
+pub fn delete_selected_items(delete_count: usize) {
+    if delete_count == 0 {
+        return;
+    }
+
     if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
         let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
         if cur != win32::LB_ERR {
-            let mut target_text = String::new();
-            let mut is_history = false;
+            let mut history_to_save = None;
+            let mut next_sel = cur;
 
             {
-                let state_guard = lock_state();
-                if let Some(state) = &*state_guard {
-                    is_history = state.mode == Mode::History;
-                    if is_history && (cur as usize) < state.current_full_paths.len() {
-                        target_text = state.current_full_paths[cur as usize].clone();
+                let mut state_guard = lock_state();
+                if let Some(state) = &mut *state_guard {
+                    if state.mode == Mode::History {
+                        let history = std::sync::Arc::make_mut(&mut state.history);
+                        let mut deleted_any = false;
+
+                        // Disable redrawing to prevent flickering during batch deletion
+                        unsafe {
+                            win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
+                        }
+
+                        for _ in 0..delete_count {
+                            let len = state.current_full_paths.len();
+                            if len == 0 {
+                                break;
+                            }
+                            // Clamp target index to current list size
+                            let idx = std::cmp::min(next_sel as usize, len - 1);
+                            let target_text = state.current_full_paths[idx].clone();
+
+                            // 1. Remove from state.history
+                            if let Some(pos) = history.iter().position(|x| x == &target_text) {
+                                history.remove(pos);
+                                deleted_any = true;
+                            }
+
+                            // 2. Remove from state active results
+                            if idx < state.current_results.len() {
+                                state.current_results.remove(idx);
+                            }
+                            if idx < state.current_full_paths.len() {
+                                state.current_full_paths.remove(idx);
+                            }
+
+                            // 3. Delete from the listbox directly (preserves scroll position)
+                            unsafe {
+                                win32::SendMessageW(
+                                    *hwnd_listbox,
+                                    win32::LB_DELETESTRING,
+                                    idx,
+                                    0,
+                                );
+                            }
+
+                            // Determine next selection index
+                            let new_len = state.current_full_paths.len();
+                            if new_len > 0 {
+                                next_sel = std::cmp::min(idx as isize, (new_len - 1) as isize);
+                            } else {
+                                next_sel = win32::LB_ERR;
+                                break;
+                            }
+                        }
+
+                        // Apply new selection and re-enable redrawing
+                        unsafe {
+                            if next_sel != win32::LB_ERR {
+                                win32::SendMessageW(
+                                    *hwnd_listbox,
+                                    win32::LB_SETCURSEL,
+                                    next_sel as usize,
+                                    0,
+                                );
+                            }
+                            win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
+                        }
+
+                        if deleted_any
+                            && state::SAVE_HISTORY_TO_FILE
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            history_to_save = Some(std::sync::Arc::clone(&state.history));
+                        }
                     }
                 }
             }
 
-            if is_history && !target_text.is_empty() {
-                let mut history_to_save = None;
-                {
-                    let mut state_guard = lock_state();
-                    if let Some(state) = &mut *state_guard {
-                        let history = std::sync::Arc::make_mut(&mut state.history);
-                        if let Some(pos) = history.iter().position(|x| x == &target_text) {
-                            history.remove(pos);
-                            if state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed) {
-                                history_to_save = Some(std::sync::Arc::clone(&state.history));
-                            }
-                        }
-                    }
+            if let Some(history_arc) = history_to_save {
+                std::thread::spawn(move || {
+                    util::save_history(&history_arc);
+                });
+            }
+
+            crate::wndproc::update_top_index();
+            unsafe {
+                win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
+            }
+            if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+                unsafe {
+                    win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
                 }
-
-                if let Some(history_arc) = history_to_save {
-                    std::thread::spawn(move || {
-                        util::save_history(&history_arc);
-                    });
-                }
-
-
-                update_listbox_items();
-
-                // Keep the selection at the same position or move it up if we deleted the last item
-                let count = unsafe {
-                    win32::SendMessageW(*hwnd_listbox, 0x018B /* LB_GETCOUNT */, 0, 0)
-                } as isize;
-                if count > 0 {
-                    let next_sel = std::cmp::min(cur, count - 1);
-                    unsafe {
-                        win32::SendMessageW(
-                            *hwnd_listbox,
-                            win32::LB_SETCURSEL,
-                            next_sel as usize,
-                            0,
-                        )
-                    };
-                }
-                crate::wndproc::update_top_index();
             }
         }
     }
@@ -345,7 +399,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         let w = (base_width * scale) as i32; // Width with generous margins (scaled)
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
         let item_h = (26.0 * scale) as i32;
-        let base_h = (52.0 * scale) as i32;
+        let base_h = (84.0 * scale) as i32;
         let h = (max_rows as i32) * item_h + base_h;
 
         let mut work_rect = win32::RECT {
@@ -583,9 +637,8 @@ pub fn restore_focus(last_active_window: Option<usize>) {
 pub fn simulate_paste() {
     thread::sleep(Duration::from_millis(150));
 
-    let ctrl_pressed = unsafe {
-        (win32::GetKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0
-    };
+    let ctrl_pressed =
+        unsafe { (win32::GetKeyState(win32::VK_CONTROL as i32) & 0x8000u16 as i16) != 0 };
 
     if ctrl_pressed {
         // 物理的に Ctrl が押されている場合は、V の押し下げ・解放のみをシミュレートする
@@ -762,26 +815,31 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("履歴をファイルに保存する").as_ptr(),
         );
 
-        win32::AppendMenuW(
-            menu,
-            0,
-            1009,
-            util::to_wstring("履歴をクリア").as_ptr(),
-        );
+        win32::AppendMenuW(menu, 0, 1009, util::to_wstring("履歴をクリア").as_ptr());
 
         // FIFO / LIFO モードのメニュー項目
         let current_mode = {
             let state_guard = lock_state();
-            state_guard.as_ref().map(|s| s.fifo_lifo_mode).unwrap_or(state::FifoLifoMode::None)
+            state_guard
+                .as_ref()
+                .map(|s| s.fifo_lifo_mode)
+                .unwrap_or(state::FifoLifoMode::None)
         };
         let queue_len = {
             let state_guard = lock_state();
-            state_guard.as_ref().map(|s| s.fifo_lifo_queue.len()).unwrap_or(0)
+            state_guard
+                .as_ref()
+                .map(|s| s.fifo_lifo_queue.len())
+                .unwrap_or(0)
         };
 
         win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
 
-        let check_none = if current_mode == state::FifoLifoMode::None { win32::MF_CHECKED } else { win32::MF_UNCHECKED };
+        let check_none = if current_mode == state::FifoLifoMode::None {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
         win32::AppendMenuW(
             menu,
             check_none,
@@ -789,7 +847,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("通常モード").as_ptr(),
         );
 
-        let check_fifo = if current_mode == state::FifoLifoMode::Fifo { win32::MF_CHECKED } else { win32::MF_UNCHECKED };
+        let check_fifo = if current_mode == state::FifoLifoMode::Fifo {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
         win32::AppendMenuW(
             menu,
             check_fifo,
@@ -797,7 +859,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring(&format!("FIFO モード ({})", queue_len)).as_ptr(),
         );
 
-        let check_lifo = if current_mode == state::FifoLifoMode::Lifo { win32::MF_CHECKED } else { win32::MF_UNCHECKED };
+        let check_lifo = if current_mode == state::FifoLifoMode::Lifo {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
         win32::AppendMenuW(
             menu,
             check_lifo,
@@ -806,12 +872,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         );
 
         if queue_len > 0 {
-            win32::AppendMenuW(
-                menu,
-                0,
-                1013,
-                util::to_wstring("キューをクリア").as_ptr(),
-            );
+            win32::AppendMenuW(menu, 0, 1013, util::to_wstring("キューをクリア").as_ptr());
         }
 
         win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
@@ -844,7 +905,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                 let _ = std::process::Command::new("explorer").arg(path).spawn();
             }
             Err(e) => {
-                show_notification("エラー", &format!("フォルダを作成できませんでした: {}", e), true);
+                show_notification(
+                    "エラー",
+                    &format!("フォルダを作成できませんでした: {}", e),
+                    true,
+                );
             }
         }
     } else if cmd == 1006 {
@@ -916,7 +981,9 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         }
     } else if cmd == 1009 {
         let title_w = util::to_wstring("Clipper");
-        let question_w = util::to_wstring("クリップボード履歴をすべてクリアしますか？\n（この操作は取り消せません）");
+        let question_w = util::to_wstring(
+            "クリップボード履歴をすべてクリアしますか？\n（この操作は取り消せません）",
+        );
         let res = unsafe {
             win32::MessageBoxW(
                 hwnd,
@@ -962,7 +1029,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
-        show_notification("FIFO モード開始", "コピーしたデータが古い順にペーストされます。\n(Ctrl+Shift+F で解除)", false);
+        show_notification(
+            "FIFO モード開始",
+            "コピーしたデータが古い順にペーストされます。\n(Ctrl+Shift+F で解除)",
+            false,
+        );
     } else if cmd == 1012 {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
@@ -970,7 +1041,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
-        show_notification("LIFO モード開始", "コピーしたデータが新しい順にペーストされます。\n(Ctrl+Shift+L で解除)", false);
+        show_notification(
+            "LIFO モード開始",
+            "コピーしたデータが新しい順にペーストされます。\n(Ctrl+Shift+L で解除)",
+            false,
+        );
     } else if cmd == 1013 {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
@@ -978,7 +1053,11 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
-        show_notification("キューをクリア", "蓄積されたコピーデータをクリアしました。", false);
+        show_notification(
+            "キューをクリア",
+            "蓄積されたコピーデータをクリアしました。",
+            false,
+        );
     } else if cmd == 1003 {
         unsafe { win32::PostQuitMessage(0) };
     }
@@ -1030,7 +1109,7 @@ pub fn register_app_id() {
         unsafe {
             let subkey = util::to_wstring("Software\\Classes\\AppUserModelId\\clipper");
             let mut hkey = std::ptr::null_mut();
-            
+
             let status = win32::RegCreateKeyExW(
                 win32::HKEY_CURRENT_USER,
                 subkey.as_ptr(),
@@ -1042,13 +1121,13 @@ pub fn register_app_id() {
                 &mut hkey,
                 std::ptr::null_mut(),
             );
-            
+
             if status == 0 {
                 // アプリ名を表示名として登録
                 let value_name = util::to_wstring("DisplayName");
                 let value_data = util::to_wstring("Clipper");
                 let cb_data = (value_data.len() * 2) as u32;
-                
+
                 let _ = win32::RegSetValueExW(
                     hkey,
                     value_name.as_ptr(),
@@ -1057,7 +1136,7 @@ pub fn register_app_id() {
                     value_data.as_ptr() as *const u8,
                     cb_data,
                 );
-                
+
                 // タイトルバー用のアイコン絶対パスを登録
                 let is_sys_dark = crate::darkmode::is_system_dark_mode();
                 if let Some(icon_path) = get_icon_path(is_sys_dark) {
@@ -1065,7 +1144,7 @@ pub fn register_app_id() {
                     let icon_name = util::to_wstring("IconUri");
                     let icon_data = util::to_wstring(&win_path);
                     let cb_icon = (icon_data.len() * 2) as u32;
-                    
+
                     let _ = win32::RegSetValueExW(
                         hkey,
                         icon_name.as_ptr(),
@@ -1075,7 +1154,7 @@ pub fn register_app_id() {
                         cb_icon,
                     );
                 }
-                
+
                 win32::RegCloseKey(hkey);
             }
         }
@@ -1091,46 +1170,52 @@ fn get_icon_path(is_dark: bool) -> Option<String> {
         &CACHED_ICON_PATH_LIGHT
     };
 
-    cache.get_or_init(|| {
-        let file_name = if is_dark { "app_inverted.png" } else { "app.png" };
-        if let Ok(exe_path) = std::env::current_exe() {
-            let mut dir = exe_path.parent();
-            for _ in 0..4 {
-                if let Some(d) = dir {
-                    let candidate = d.join("assets").join(file_name);
-                    if candidate.exists() {
-                        if let Ok(abs_path) = candidate.canonicalize() {
-                            let abs_path_str = abs_path.to_string_lossy().to_string();
-                            let clean_path = abs_path_str.trim_start_matches(r"\\?\");
-                            return Some(clean_path.replace('\\', "/"));
+    cache
+        .get_or_init(|| {
+            let file_name = if is_dark {
+                "app_inverted.png"
+            } else {
+                "app.png"
+            };
+            if let Ok(exe_path) = std::env::current_exe() {
+                let mut dir = exe_path.parent();
+                for _ in 0..4 {
+                    if let Some(d) = dir {
+                        let candidate = d.join("assets").join(file_name);
+                        if candidate.exists() {
+                            if let Ok(abs_path) = candidate.canonicalize() {
+                                let abs_path_str = abs_path.to_string_lossy().to_string();
+                                let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                                return Some(clean_path.replace('\\', "/"));
+                            }
                         }
+                        dir = d.parent();
+                    } else {
+                        break;
                     }
-                    dir = d.parent();
-                } else {
-                    break;
                 }
             }
-        }
-        if let Ok(current) = std::env::current_dir() {
-            let mut dir = Some(current.as_path());
-            for _ in 0..4 {
-                if let Some(d) = dir {
-                    let candidate = d.join("assets").join(file_name);
-                    if candidate.exists() {
-                        if let Ok(abs_path) = candidate.canonicalize() {
-                            let abs_path_str = abs_path.to_string_lossy().to_string();
-                            let clean_path = abs_path_str.trim_start_matches(r"\\?\");
-                            return Some(clean_path.replace('\\', "/"));
+            if let Ok(current) = std::env::current_dir() {
+                let mut dir = Some(current.as_path());
+                for _ in 0..4 {
+                    if let Some(d) = dir {
+                        let candidate = d.join("assets").join(file_name);
+                        if candidate.exists() {
+                            if let Ok(abs_path) = candidate.canonicalize() {
+                                let abs_path_str = abs_path.to_string_lossy().to_string();
+                                let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                                return Some(clean_path.replace('\\', "/"));
+                            }
                         }
+                        dir = d.parent();
+                    } else {
+                        break;
                     }
-                    dir = d.parent();
-                } else {
-                    break;
                 }
             }
-        }
-        None
-    }).clone()
+            None
+        })
+        .clone()
 }
 
 /// Windows Runtime (WinRT) API を用いてトースト通知を送信します。
@@ -1144,11 +1229,7 @@ fn show_toast_notification(
     sound: bool,
     _is_error: bool,
 ) -> windows::core::Result<()> {
-    use windows::{
-        core::*,
-        Data::Xml::Dom::*,
-        UI::Notifications::*,
-    };
+    use windows::{Data::Xml::Dom::*, UI::Notifications::*, core::*};
 
     let app_id = HSTRING::from("clipper");
     let group = HSTRING::from("clipper_group");
@@ -1160,12 +1241,19 @@ fn show_toast_notification(
 
     // XML configuration
     let duration = if seconds <= 7 { "short" } else { "long" };
-    let audio_xml = if sound { "" } else { "<audio silent=\"true\"/>" };
+    let audio_xml = if sound {
+        ""
+    } else {
+        "<audio silent=\"true\"/>"
+    };
 
     let is_sys_dark = crate::darkmode::is_system_dark_mode();
     let mut image_xml = String::new();
     if let Some(clean_path) = get_icon_path(is_sys_dark) {
-        image_xml = format!(r#"<image placement="appLogoOverride" src="file:///{}" />"#, clean_path);
+        image_xml = format!(
+            r#"<image placement="appLogoOverride" src="file:///{}" />"#,
+            clean_path
+        );
     }
 
     let escaped_title = escape_xml(title);

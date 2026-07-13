@@ -12,7 +12,7 @@ mod win32;
 mod wndproc;
 
 use crate::hook::keyboard_hook_proc;
-use crate::state::{MAIN_HWND, Mode, SafeHWND, lock_state, LISTBOX_HWND};
+use crate::state::{LISTBOX_HWND, MAIN_HWND, Mode, SafeHWND, lock_state};
 use crate::wndproc::window_proc;
 
 fn get_shortcut_index(wparam: usize) -> Option<usize> {
@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         win32::RegisterClassW(&wnd_class);
 
         let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        let initial_h = (max_rows as i32) * 26 + 52;
+        let initial_h = (max_rows as i32) * 26 + 84;
         let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
 
         let hwnd = win32::CreateWindowExW(
@@ -161,7 +161,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut msg = std::mem::zeroed();
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-            let is_key_msg = msg.message == win32::WM_KEYDOWN || msg.message == win32::WM_SYSKEYDOWN;
+            let is_key_msg =
+                msg.message == win32::WM_KEYDOWN || msg.message == win32::WM_SYSKEYDOWN;
             let is_visible = is_key_msg && {
                 let state_guard = lock_state();
                 state_guard.as_ref().is_some_and(|s| s.visible)

@@ -106,6 +106,13 @@ mod windows {
     }
 
     #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct SIZE {
+        pub cx: i32,
+        pub cy: i32,
+    }
+
+    #[repr(C)]
     #[derive(Clone, Copy)]
     pub struct PAINTSTRUCT {
         pub hdc: HDC,
@@ -234,6 +241,7 @@ mod windows {
     pub const WA_INACTIVE: usize = 0;
 
     pub const LB_ADDSTRING: u32 = 0x0180;
+    pub const LB_DELETESTRING: u32 = 0x0182;
     pub const LB_RESETCONTENT: u32 = 0x0184;
     pub const LB_GETCURSEL: u32 = 0x0188;
     pub const LB_SETCURSEL: u32 = 0x0186;
@@ -275,6 +283,7 @@ mod windows {
     pub const DT_SINGLELINE: u32 = 0x00000020;
     pub const DT_END_ELLIPSIS: u32 = 0x00008000;
     pub const DT_NOPREFIX: u32 = 0x00000800;
+    pub const DT_NOCLIP: u32 = 0x00000100;
 
     pub const PS_SOLID: i32 = 0;
     pub const NULL_PEN: i32 = 8;
@@ -507,6 +516,12 @@ mod windows {
         pub fn RemoveFontMemResourceEx(h: *mut std::ffi::c_void) -> BOOL;
         pub fn Polygon(hdc: HDC, apt: *const POINT, cpt: i32) -> BOOL;
         pub fn Ellipse(hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL;
+        pub fn GetTextExtentPoint32W(
+            hdc: HDC,
+            lpString: *const u16,
+            c: i32,
+            lpSize: *mut SIZE,
+        ) -> BOOL;
     }
 
     #[link(name = "shell32")]
@@ -814,6 +829,7 @@ mod windows {
     pub const KEY_READ: u32 = 0;
     pub const LB_GETTOPINDEX: u32 = 0;
     pub const LB_ITEMFROMPOINT: u32 = 0;
+    pub const LB_DELETESTRING: u32 = 0;
     pub const WM_LBUTTONDOWN: u32 = 0;
     pub const WM_LBUTTONUP: u32 = 0;
     pub const WM_RBUTTONDOWN: u32 = 0;
@@ -944,6 +960,20 @@ mod windows {
         0
     }
     pub unsafe fn Ellipse(_hdc: usize, _left: i32, _top: i32, _right: i32, _bottom: i32) -> i32 {
+        0
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    pub struct SIZE {
+        pub cx: i32,
+        pub cy: i32,
+    }
+    pub unsafe fn GetTextExtentPoint32W(
+        _hdc: usize,
+        _lpString: *const u16,
+        _c: i32,
+        _lpSize: *mut SIZE,
+    ) -> i32 {
         0
     }
     pub unsafe fn GetFocus() -> HWND {

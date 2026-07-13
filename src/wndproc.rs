@@ -6,9 +6,9 @@ use crate::darkmode;
 use crate::state::Mode;
 use crate::state::{
     self, BRUSH_BG, BRUSH_BORDER, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_SEL_BG, EDIT_HWND,
-    FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, MAIN_HWND, OLD_EDIT_PROC, SafeHBRUSH,
-    SafeHFONT, SafeHWND, SafeWndProc, WM_HIDE_WINDOW, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET,
-    lock_state, FifoLifoMode, WM_FIFO_LIFO_PASTE, WM_TOGGLE_FIFO_LIFO,
+    FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, FifoLifoMode, LISTBOX_HWND, MAIN_HWND,
+    OLD_EDIT_PROC, SafeHBRUSH, SafeHFONT, SafeHWND, SafeWndProc, WM_FIFO_LIFO_PASTE,
+    WM_HIDE_WINDOW, WM_TOGGLE_FIFO_LIFO, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, lock_state,
 };
 use crate::ui;
 use crate::util;
@@ -56,8 +56,8 @@ const DARK_THEME: ThemeColors = ThemeColors {
 };
 
 const SHORTCUT_CHARS: &[char] = &[
-    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+    'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 ];
 
 // Update theme colors, brushes, fonts and apply to controls
@@ -288,15 +288,55 @@ pub unsafe extern "system" fn edit_subclass_proc(
     if msg == win32::WM_KEYDOWN {
         state::log_debug(&format!("Edit KeyDown: vk={}", wparam));
         match wparam {
+            9 => {
+                // Tab key
+                let target_mode = {
+                    let state_guard = lock_state();
+                    state_guard
+                        .as_ref()
+                        .map(|s| match s.mode {
+                            Mode::History => Mode::Snippet,
+                            Mode::Snippet => Mode::History,
+                        })
+                        .unwrap_or(Mode::History)
+                };
+
+                let changed = {
+                    let mut state_guard = lock_state();
+                    if let Some(state) = &mut *state_guard {
+                        state.mode = target_mode;
+                        if target_mode == Mode::Snippet {
+                            state.snippets = std::sync::Arc::new(util::load_snippets());
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                if changed {
+                    unsafe {
+                        win32::SetWindowTextW(hwnd, [0u16].as_ptr());
+                    }
+                    ui::update_listbox_items();
+                    ui::update_search_cue_banner();
+                    if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+                        unsafe {
+                            win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
+                        }
+                    }
+                }
+                return 0;
+            }
             37 => {
                 // Left Arrow
                 let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
                 if len == 0 {
                     let has_parent = {
                         let state_guard = lock_state();
-                        state_guard
-                            .as_ref()
-                            .is_some_and(|s| s.mode == Mode::Snippet && !s.current_folder.is_empty())
+                        state_guard.as_ref().is_some_and(|s| {
+                            s.mode == Mode::Snippet && !s.current_folder.is_empty()
+                        })
                     };
                     if has_parent {
                         let mut state_guard = lock_state();
@@ -322,9 +362,11 @@ pub unsafe extern "system" fn edit_subclass_proc(
                 if len == 0 {
                     let mut target_path = String::new();
                     let mut is_snippet_mode = false;
-                    
+
                     if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                        let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
+                        let cur = unsafe {
+                            win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0)
+                        } as isize;
                         if cur != win32::LB_ERR {
                             let state_guard = lock_state();
                             if let Some(state) = &*state_guard {
@@ -367,11 +409,13 @@ pub unsafe extern "system" fn edit_subclass_proc(
                 }
             }
             38 => {
-                ui::move_listbox_selection(-1);
+                let repeat_count = (lparam & 0xFFFF) as i32;
+                ui::move_listbox_selection(-repeat_count);
                 return 0;
             }
             40 => {
-                ui::move_listbox_selection(1);
+                let repeat_count = (lparam & 0xFFFF) as i32;
+                ui::move_listbox_selection(repeat_count);
                 return 0;
             }
             33 | 34 => {
@@ -396,7 +440,8 @@ pub unsafe extern "system" fn edit_subclass_proc(
                 return 0;
             }
             46 => {
-                ui::delete_selected_item();
+                let repeat_count = (lparam & 0xFFFF) as usize;
+                ui::delete_selected_items(repeat_count);
                 return 0;
             }
             8 => {
@@ -460,10 +505,14 @@ pub unsafe extern "system" fn listbox_subclass_proc(
     wparam: win32::WPARAM,
     lparam: win32::LPARAM,
 ) -> win32::LRESULT {
-    let is_scroll_msg = msg == WM_VSCROLL 
-        || msg == WM_MOUSEWHEEL 
-        || msg == win32::WM_KEYDOWN 
-        || msg == 0x0101; // WM_KEYUP
+    let is_scroll_msg =
+        msg == WM_VSCROLL || msg == WM_MOUSEWHEEL || msg == win32::WM_KEYDOWN || msg == 0x0101; // WM_KEYUP
+
+    if msg == win32::WM_KEYDOWN && wparam == 46 {
+        let repeat_count = (lparam & 0xFFFF) as usize;
+        ui::delete_selected_items(repeat_count);
+        return 0;
+    }
 
     if msg == win32::WM_LBUTTONUP {
         let old_proc_opt = state::OLD_LISTBOX_PROC.get();
@@ -494,7 +543,7 @@ pub unsafe extern "system" fn listbox_subclass_proc(
 
     if is_scroll_msg {
         unsafe {
-            win32::InvalidateRect(hwnd, std::ptr::null(), 0);
+            win32::InvalidateRect(hwnd, std::ptr::null(), 1);
         }
         update_top_index();
     }
@@ -623,11 +672,13 @@ pub unsafe extern "system" fn window_proc(
                 let ch = rc.bottom - rc.top;
 
                 let margin = (6.0 * scale) as i32;
+                let tab_bar_h = (28.0 * scale) as i32;
                 let edit_container_h = (34.0 * scale) as i32;
                 let edit_h = (26.0 * scale) as i32;
                 let gap = (4.0 * scale) as i32;
 
-                let listbox_y = margin + edit_container_h + gap;
+                let edit_container_y = margin + tab_bar_h + gap;
+                let listbox_y = edit_container_y + edit_container_h + gap;
                 let listbox_w = cw - margin * 2;
                 let listbox_h = ch - listbox_y - margin;
 
@@ -635,12 +686,101 @@ pub unsafe extern "system" fn window_proc(
                     win32::MoveWindow(*hwnd_listbox, margin, listbox_y, listbox_w, listbox_h, 1);
                 }
 
-                let edit_y = margin + (edit_container_h - edit_h) / 2;
+                let edit_y = edit_container_y + (edit_container_h - edit_h) / 2;
                 let edit_x = margin + (28.0 * scale) as i32; // margin + icon area
-                let edit_w = listbox_w - (36.0 * scale) as i32; // Align right edge to the listbox outer area
+                let edit_w = listbox_w - (60.0 * scale) as i32; // Align right edge with space for clear button
 
                 unsafe {
                     win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
+                }
+            }
+        }
+        win32::WM_LBUTTONDOWN => {
+            let x = (lparam & 0xFFFF) as i16 as i32;
+            let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+
+            let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+            let margin = (6.0 * scale) as i32;
+            let tab_bar_h = (28.0 * scale) as i32;
+
+            let mut client_rc: win32::RECT = unsafe { std::mem::zeroed() };
+            unsafe { win32::GetClientRect(hwnd, &mut client_rc) };
+            let cw = client_rc.right - client_rc.left;
+            let tab_bar_w = cw - margin * 2;
+
+            // Check if click was inside the tab bar
+            if y >= margin && y <= margin + tab_bar_h && x >= margin && x <= margin + tab_bar_w {
+                let clicked_idx = ((x - margin) / (tab_bar_w / 2)).clamp(0, 1);
+                let target_mode = if clicked_idx == 0 {
+                    Mode::History
+                } else {
+                    Mode::Snippet
+                };
+
+                let changed = {
+                    let mut state_guard = lock_state();
+                    if let Some(state) = &mut *state_guard {
+                        if state.mode != target_mode {
+                            state.mode = target_mode;
+                            if target_mode == Mode::Snippet {
+                                state.snippets = std::sync::Arc::new(util::load_snippets());
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                if changed {
+                    if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
+                        unsafe {
+                            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
+                            win32::SetFocus(*hwnd_edit);
+                        }
+                    }
+                    ui::update_listbox_items();
+                    ui::update_search_cue_banner();
+                    unsafe {
+                        win32::InvalidateRect(hwnd, std::ptr::null(), 1);
+                    }
+                }
+            }
+
+            // Check if click was inside the clear button area of the search box
+            let gap = (4.0 * scale) as i32;
+            let edit_container_h = (28.0 * scale) as i32;
+            let edit_container_y = margin + tab_bar_h + gap;
+            let listbox_w = cw - margin * 2;
+            let clear_btn_left = margin + listbox_w - (34.0 * scale) as i32;
+            let clear_btn_right = margin + listbox_w - (6.0 * scale) as i32;
+            let clear_btn_top = edit_container_y;
+            let clear_btn_bottom = edit_container_y + edit_container_h;
+
+            if x >= clear_btn_left && x <= clear_btn_right && y >= clear_btn_top && y <= clear_btn_bottom {
+                let has_text = unsafe {
+                    if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
+                        win32::GetWindowTextLengthW(*hwnd_edit) > 0
+                    } else {
+                        false
+                    }
+                };
+
+                if has_text {
+                    if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
+                        unsafe {
+                            win32::SetWindowTextW(*hwnd_edit, [0u16].as_ptr());
+                            win32::SetFocus(*hwnd_edit);
+                        }
+                    }
+                    ui::update_listbox_items();
+                    ui::update_search_cue_banner();
+                    unsafe {
+                        win32::InvalidateRect(hwnd, std::ptr::null(), 1);
+                    }
+                    return 0; // Handled click
                 }
             }
         }
@@ -650,6 +790,9 @@ pub unsafe extern "system" fn window_proc(
             if ctrl_id == 101 {
                 if code == win32::EN_CHANGE as usize {
                     ui::update_listbox_items();
+                    unsafe {
+                        win32::InvalidateRect(hwnd, std::ptr::null(), 1);
+                    }
                 } else if code == 0x0100
                 /* EN_SETFOCUS */
                 {
@@ -936,9 +1079,8 @@ pub unsafe extern "system" fn window_proc(
 
             let scale = unsafe { win32::GetDpiForWindow(dis.hwnd_item) } as f32 / 96.0;
 
-            let top_index = unsafe {
-                win32::SendMessageW(dis.hwnd_item, win32::LB_GETTOPINDEX, 0, 0)
-            } as usize;
+            let top_index =
+                unsafe { win32::SendMessageW(dis.hwnd_item, win32::LB_GETTOPINDEX, 0, 0) } as usize;
             let relative_idx = (dis.item_id as usize).checked_sub(top_index);
             let shortcut_char_opt = if let Some(idx) = relative_idx {
                 if idx < SHORTCUT_CHARS.len() {
@@ -992,13 +1134,12 @@ pub unsafe extern "system" fn window_proc(
 
             let is_in_fifo_lifo_queue = {
                 let state_guard = lock_state();
-                state_guard
-                    .as_ref()
-                    .map_or(false, |s| {
-                        s.mode == Mode::History
-                            && (dis.item_id as usize) < s.current_full_paths.len()
-                            && s.fifo_lifo_queue.contains(&s.current_full_paths[dis.item_id as usize])
-                    })
+                state_guard.as_ref().map_or(false, |s| {
+                    s.mode == Mode::History
+                        && (dis.item_id as usize) < s.current_full_paths.len()
+                        && s.fifo_lifo_queue
+                            .contains(&s.current_full_paths[dis.item_id as usize])
+                })
             };
 
             // Draw shortcut keycap if applicable
@@ -1065,7 +1206,10 @@ pub unsafe extern "system" fn window_proc(
                         char_utf16.as_ptr(),
                         1,
                         &mut key_rc,
-                        win32::DT_SINGLELINE | win32::DT_CENTER | win32::DT_VCENTER | win32::DT_NOPREFIX,
+                        win32::DT_SINGLELINE
+                            | win32::DT_CENTER
+                            | win32::DT_VCENTER
+                            | win32::DT_NOPREFIX,
                     );
 
                     if let Some(o_font) = old_font {
@@ -1200,15 +1344,168 @@ pub unsafe extern "system" fn window_proc(
             // Draw a rounded input container border/background (scaled)
             let margin = (6.0 * scale) as i32;
             let gap_x = (2.0 * scale) as i32;
+            let tab_bar_h = (28.0 * scale) as i32;
             let edit_container_h = (34.0 * scale) as i32;
+            let gap = (4.0 * scale) as i32;
 
             let listbox_w = cw - margin * 2;
 
+            // Draw the tab bar (segment control) at the top
+            let tab_bar_rc = win32::RECT {
+                left: margin,
+                top: margin,
+                right: cw - margin,
+                bottom: margin + tab_bar_h,
+            };
+
+            let active_mode = {
+                let state_guard = lock_state();
+                state_guard
+                    .as_ref()
+                    .map(|s| s.mode)
+                    .unwrap_or(Mode::History)
+            };
+
+            unsafe {
+                let border_pen = win32::CreatePen(win32::PS_SOLID, 1, colors.border_color);
+                let old_pen = win32::SelectObject(hdc, border_pen);
+                let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
+                let old_brush = win32::SelectObject(hdc, bg_brush);
+                let round_r = (4.0 * scale) as i32;
+                win32::RoundRect(
+                    hdc,
+                    tab_bar_rc.left,
+                    tab_bar_rc.top,
+                    tab_bar_rc.right,
+                    tab_bar_rc.bottom,
+                    round_r,
+                    round_r,
+                );
+                win32::SelectObject(hdc, old_brush);
+                win32::DeleteObject(bg_brush);
+                win32::SelectObject(hdc, old_pen);
+                win32::DeleteObject(border_pen);
+            }
+
+            let padding = (2.0 * scale) as i32;
+            let tab_bar_w = tab_bar_rc.right - tab_bar_rc.left;
+            let active_idx = match active_mode {
+                Mode::History => 0,
+                Mode::Snippet => 1,
+            };
+
+            let font_to_use = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
+            let mut old_font = None;
+            if let Some(SafeHFONT(font)) = font_to_use.as_ref() {
+                old_font = Some(unsafe { win32::SelectObject(hdc, *font as win32::HGDIOBJ) });
+            }
+
+            for idx in 0..2 {
+                let (tab_name, icon_type) = if idx == 0 {
+                    ("履歴", IconType::History)
+                } else {
+                    ("スニペット", IconType::Snippet)
+                };
+
+                let seg_left = tab_bar_rc.left + idx * (tab_bar_w / 2);
+                let seg_right = if idx == 0 {
+                    tab_bar_rc.left + tab_bar_w / 2
+                } else {
+                    tab_bar_rc.right
+                };
+
+                let is_active = idx == active_idx;
+
+                if is_active {
+                    let pill_rc = win32::RECT {
+                        left: seg_left + padding,
+                        top: tab_bar_rc.top + padding,
+                        right: seg_right - padding,
+                        bottom: tab_bar_rc.bottom - padding,
+                    };
+                    unsafe {
+                        let pill_brush = win32::CreateSolidBrush(colors.sel_bg);
+                        let old_brush = win32::SelectObject(hdc, pill_brush);
+                        let old_pen =
+                            win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
+                        let round_size = (3.0 * scale) as i32;
+                        win32::RoundRect(
+                            hdc,
+                            pill_rc.left,
+                            pill_rc.top,
+                            pill_rc.right,
+                            pill_rc.bottom,
+                            round_size,
+                            round_size,
+                        );
+                        win32::SelectObject(hdc, old_brush);
+                        win32::SelectObject(hdc, old_pen);
+                        win32::DeleteObject(pill_brush);
+                    }
+                }
+
+                let w_text = util::to_wstring(tab_name);
+                let mut size_struct = win32::SIZE { cx: 0, cy: 0 };
+                unsafe {
+                    win32::GetTextExtentPoint32W(
+                        hdc,
+                        w_text.as_ptr(),
+                        w_text.len() as i32,
+                        &mut size_struct,
+                    );
+                }
+
+                let icon_w = (14.0 * scale) as i32;
+                let spacing = (4.0 * scale) as i32;
+                let total_content_w = icon_w + spacing + size_struct.cx;
+
+                let seg_w = seg_right - seg_left;
+                let content_left = seg_left + (seg_w - total_content_w) / 2;
+
+                let icon_x = content_left;
+                let icon_y = tab_bar_rc.top + (tab_bar_h - icon_w) / 2;
+
+                let text_color = if is_active {
+                    colors.sel_text
+                } else {
+                    colors.dim_text_color
+                };
+
+                draw_vector_icon(hdc, icon_type, icon_x, icon_y, icon_w, text_color);
+
+                let mut text_rc = win32::RECT {
+                    left: icon_x + icon_w + spacing,
+                    top: tab_bar_rc.top,
+                    right: seg_right,
+                    bottom: tab_bar_rc.bottom,
+                };
+
+                unsafe {
+                    win32::SetTextColor(hdc, text_color);
+                    win32::SetBkMode(hdc, 1 /* TRANSPARENT */);
+                    win32::DrawTextW(
+                        hdc,
+                        w_text.as_ptr(),
+                        w_text.len() as i32,
+                        &mut text_rc,
+                        win32::DT_SINGLELINE
+                            | win32::DT_VCENTER
+                            | win32::DT_LEFT
+                            | win32::DT_NOPREFIX,
+                    );
+                }
+            }
+
+            if let Some(o_font) = old_font {
+                unsafe { win32::SelectObject(hdc, o_font) };
+            }
+
+            let edit_container_y = margin + tab_bar_h + gap;
             let container_rc = win32::RECT {
                 left: margin + gap_x,
-                top: margin,
+                top: edit_container_y,
                 right: margin + listbox_w - gap_x,
-                bottom: margin + edit_container_h,
+                bottom: edit_container_y + edit_container_h,
             };
 
             // Choose border color and width based on focus
@@ -1255,10 +1552,33 @@ pub unsafe extern "system" fn window_proc(
                 hdc,
                 IconType::Search,
                 margin + icon_margin_left,
-                margin + (edit_container_h - icon_size) / 2,
+                edit_container_y + (edit_container_h - icon_size) / 2,
                 icon_size,
                 icon_color,
             );
+
+            // Draw clear button if edit control has text
+            let has_text = unsafe {
+                if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
+                    win32::GetWindowTextLengthW(*hwnd_edit) > 0
+                } else {
+                    false
+                }
+            };
+            if has_text {
+                let clear_icon_size = (16.0 * scale) as i32;
+                let clear_icon_x = margin + listbox_w - (30.0 * scale) as i32;
+                let clear_icon_y = edit_container_y + (edit_container_h - clear_icon_size) / 2;
+                draw_vector_icon(
+                    hdc,
+                    IconType::Clear,
+                    clear_icon_x,
+                    clear_icon_y,
+                    clear_icon_size,
+                    colors.dim_text_color,
+                );
+            }
+
 
             // Draw 1px clean border of the main window itself
             let mut delete_border = false;
@@ -1380,7 +1700,8 @@ pub unsafe extern "system" fn window_proc(
             // 前回のペースト処理完了から 150ms 以上経過するまで次の処理を遅延させます。
             // これにより、OSのキーイベント配送やターゲットアプリのクリップボード読み込みラグを
             // 安全に待機し、重複ペーストや文字 'v' の誤入力を完全に防止します。
-            static LAST_PASTE_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            static LAST_PASTE_TIME: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -1408,12 +1729,8 @@ pub unsafe extern "system" fn window_proc(
                 let mut state_guard = lock_state();
                 if let Some(state) = &mut *state_guard {
                     match state.fifo_lifo_mode {
-                        FifoLifoMode::Fifo => {
-                            state.fifo_lifo_queue.pop_front()
-                        }
-                        FifoLifoMode::Lifo => {
-                            state.fifo_lifo_queue.pop_back()
-                        }
+                        FifoLifoMode::Fifo => state.fifo_lifo_queue.pop_front(),
+                        FifoLifoMode::Lifo => state.fifo_lifo_queue.pop_back(),
                         _ => None,
                     }
                 } else {
@@ -1443,7 +1760,10 @@ pub unsafe extern "system" fn window_proc(
 
                 let queue_len = {
                     let state_guard = lock_state();
-                    state_guard.as_ref().map(|s| s.fifo_lifo_queue.len()).unwrap_or(0)
+                    state_guard
+                        .as_ref()
+                        .map(|s| s.fifo_lifo_queue.len())
+                        .unwrap_or(0)
                 };
                 if queue_len == 0 {
                     let mut state_guard = lock_state();
@@ -1494,8 +1814,12 @@ pub unsafe extern "system" fn window_proc(
                 FifoLifoMode::None => "通常モード (FIFO/LIFO 終了)",
             };
             let notification_body = match new_mode {
-                FifoLifoMode::Fifo => "コピーしたデータが古い順にペーストされます。\n(Ctrl+Shift+F で解除)",
-                FifoLifoMode::Lifo => "コピーしたデータが新しい順にペーストされます。\n(Ctrl+Shift+L で解除)",
+                FifoLifoMode::Fifo => {
+                    "コピーしたデータが古い順にペーストされます。\n(Ctrl+Shift+F で解除)"
+                }
+                FifoLifoMode::Lifo => {
+                    "コピーしたデータが新しい順にペーストされます。\n(Ctrl+Shift+L で解除)"
+                }
                 FifoLifoMode::None => "通常モードに戻りました。",
             };
 
@@ -1508,9 +1832,9 @@ pub unsafe extern "system" fn window_proc(
         win32::WM_CLIPBOARDUPDATE => {
             let is_excluded = if let Some(active_app) = util::get_active_process_name() {
                 state::CONFIG.get().map_or(false, |c| {
-                    c.exclude_apps.iter().any(|app| {
-                        app.eq_ignore_ascii_case(&active_app)
-                    })
+                    c.exclude_apps
+                        .iter()
+                        .any(|app| app.eq_ignore_ascii_case(&active_app))
                 })
             } else {
                 false
@@ -1576,7 +1900,10 @@ pub unsafe extern "system" fn window_proc(
 
                     let len = {
                         let state_guard = lock_state();
-                        state_guard.as_ref().map(|s| s.fifo_lifo_queue.len()).unwrap_or(0)
+                        state_guard
+                            .as_ref()
+                            .map(|s| s.fifo_lifo_queue.len())
+                            .unwrap_or(0)
                     };
                     let mode_str = match mode {
                         FifoLifoMode::Fifo => "FIFO",
@@ -1595,7 +1922,11 @@ pub unsafe extern "system" fn window_proc(
 
                     ui::show_notification(
                         &format!("{} キューに追加", mode_str),
-                        &format!("アイテムが追加されました。現在のキュー: {} 件\n{}", len, limit_text(&text, 40)),
+                        &format!(
+                            "アイテムが追加されました。現在のキュー: {} 件\n{}",
+                            len,
+                            limit_text(&text, 40)
+                        ),
                         false,
                     );
                 }
@@ -1713,6 +2044,7 @@ pub enum IconType {
     Snippet,
     History,
     ChevronRight,
+    Clear,
 }
 
 pub fn draw_vector_icon(
@@ -1755,9 +2087,10 @@ pub fn draw_vector_icon(
                     IconType::Search => 0xE721u16,       // Search (🔍)
                     IconType::Folder => 0xE8D5u16,       // Folder (📁, filled)
                     IconType::ParentFolder => 0xE10Eu16, // FolderParent / Up (↩/⬆)
-                    IconType::Snippet => 0xE8A5u16,      // Document (📄, with lines)
-                    IconType::History => 0xE12Fu16,      // Clipboard (📋)
+                    IconType::Snippet => 0xE7C3u16,      // Document (📄)
+                    IconType::History => 0xE77Fu16,      // Clipboard (📋)
                     IconType::ChevronRight => 0xE974u16, // ChevronRight (＞)
+                    IconType::Clear => 0xE711u16,        // Clear/Cancel (X)
                 };
 
                 let glyph_w = [glyph_char, 0];
@@ -1776,7 +2109,8 @@ pub fn draw_vector_icon(
                     win32::DT_SINGLELINE
                         | win32::DT_CENTER
                         | win32::DT_VCENTER
-                        | win32::DT_NOPREFIX,
+                        | win32::DT_NOPREFIX
+                        | win32::DT_NOCLIP,
                 );
 
                 win32::SelectObject(hdc, old_font);
@@ -1881,6 +2215,12 @@ pub fn draw_vector_icon(
                     win32::MoveToEx(hdc, x + s(9.0), y + s(6.0), std::ptr::null_mut());
                     win32::LineTo(hdc, x + s(15.0), y + s(12.0));
                     win32::LineTo(hdc, x + s(9.0), y + s(18.0));
+                }
+                IconType::Clear => {
+                    win32::MoveToEx(hdc, x + s(6.0), y + s(6.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(18.0), y + s(18.0));
+                    win32::MoveToEx(hdc, x + s(18.0), y + s(6.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(6.0), y + s(18.0));
                 }
             }
 
