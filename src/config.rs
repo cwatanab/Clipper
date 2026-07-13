@@ -38,6 +38,8 @@ pub struct Config {
     pub exclude_apps: Vec<String>,
     #[serde(default = "default_sort_snippets")]
     pub sort_snippets: bool,
+    #[serde(default = "default_show_notifications")]
+    pub show_notifications: bool,
 }
 
 fn default_max_history() -> usize {
@@ -81,6 +83,10 @@ fn default_sort_snippets() -> bool {
     false
 }
 
+fn default_show_notifications() -> bool {
+    true
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -95,6 +101,7 @@ impl Default for Config {
             history_key: "left_ctrl".to_string(),
             exclude_apps: default_exclude_apps(),
             sort_snippets: false,
+            show_notifications: true,
         }
     }
 }
@@ -172,6 +179,7 @@ mod tests {
         assert!(config.exclude_apps.contains(&"1Password.exe".to_string()));
         assert!(config.exclude_apps.contains(&"Bitwarden.exe".to_string()));
         assert_eq!(config.sort_snippets, false);
+        assert_eq!(config.show_notifications, true);
     }
 
     #[test]
@@ -188,6 +196,7 @@ mod tests {
             history_key = "ctrl"
             exclude_apps = ["test.exe"]
             sort_snippets = true
+            show_notifications = false
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -201,6 +210,7 @@ mod tests {
         assert_eq!(config.history_key, "ctrl");
         assert_eq!(config.exclude_apps, vec!["test.exe".to_string()]);
         assert_eq!(config.sort_snippets, true);
+        assert_eq!(config.show_notifications, false);
     }
 
     #[test]

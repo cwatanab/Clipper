@@ -70,6 +70,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         current_folder: String::new(),
         top_index: 0,
         filter_generation: 0,
+        fifo_lifo_mode: state::FifoLifoMode::None,
+        fifo_lifo_queue: std::collections::VecDeque::new(),
     };
 
     if let Some(text) = util::get_clipboard_text() {

@@ -8,7 +8,7 @@ use crate::state::{
     self, BRUSH_BG, BRUSH_BORDER, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_SEL_BG, EDIT_HWND,
     FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, LISTBOX_HWND, MAIN_HWND, OLD_EDIT_PROC, SafeHBRUSH,
     SafeHFONT, SafeHWND, SafeWndProc, WM_HIDE_WINDOW, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET,
-    lock_state,
+    lock_state, FifoLifoMode, WM_FIFO_LIFO_PASTE, WM_TOGGLE_FIFO_LIFO,
 };
 use crate::ui;
 use crate::util;
@@ -990,6 +990,17 @@ pub unsafe extern "system" fn window_proc(
                 win32::SetBkMode(hdc, 1 /* TRANSPARENT */)
             };
 
+            let is_in_fifo_lifo_queue = {
+                let state_guard = lock_state();
+                state_guard
+                    .as_ref()
+                    .map_or(false, |s| {
+                        s.mode == Mode::History
+                            && (dis.item_id as usize) < s.current_full_paths.len()
+                            && s.fifo_lifo_queue.contains(&s.current_full_paths[dis.item_id as usize])
+                    })
+            };
+
             // Draw shortcut keycap if applicable
             let shortcut_width = (16.0 * scale) as i32;
 
@@ -1006,7 +1017,13 @@ pub unsafe extern "system" fn window_proc(
                 };
 
                 unsafe {
-                    let pen_color = colors.border_color;
+                    let mut pen_color = colors.border_color;
+                    let mut key_text_color = colors.text_color;
+
+                    if is_in_fifo_lifo_queue && !selected {
+                        pen_color = colors.sel_bg;
+                        key_text_color = colors.sel_bg;
+                    }
 
                     let key_pen = win32::CreatePen(win32::PS_SOLID, 1, pen_color);
                     let key_brush_guard = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner());
@@ -1034,7 +1051,7 @@ pub unsafe extern "system" fn window_proc(
                     win32::SelectObject(hdc, old_brush);
                     win32::DeleteObject(key_pen);
 
-                    let old_text_color = win32::SetTextColor(hdc, colors.text_color);
+                    let old_text_color = win32::SetTextColor(hdc, key_text_color);
 
                     let font_to_use = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
                     let mut old_font = None;
@@ -1358,6 +1375,108 @@ pub unsafe extern "system" fn window_proc(
         WM_HIDE_WINDOW => {
             ui::hide_window();
         }
+        WM_FIFO_LIFO_PASTE => {
+            let text_to_paste = {
+                let mut state_guard = lock_state();
+                if let Some(state) = &mut *state_guard {
+                    match state.fifo_lifo_mode {
+                        FifoLifoMode::Fifo => {
+                            state.fifo_lifo_queue.pop_front()
+                        }
+                        FifoLifoMode::Lifo => {
+                            state.fifo_lifo_queue.pop_back()
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if let Some(text) = text_to_paste {
+                let mut success = false;
+                for _ in 0..10 {
+                    if util::set_clipboard_text(&text) {
+                        let mut state_guard = lock_state();
+                        if let Some(state) = &mut *state_guard {
+                            state.last_clipboard_value = text.clone();
+                        }
+                        success = true;
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+
+                if success {
+                    state::IS_SELF_PASTING.store(true, Ordering::Relaxed);
+                    ui::simulate_paste();
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        state::IS_SELF_PASTING.store(false, Ordering::Relaxed);
+                    });
+                }
+
+                ui::update_tray_tip_and_icon(hwnd);
+
+                let queue_len = {
+                    let state_guard = lock_state();
+                    state_guard.as_ref().map(|s| s.fifo_lifo_queue.len()).unwrap_or(0)
+                };
+                if queue_len == 0 {
+                    let mut state_guard = lock_state();
+                    if let Some(state) = &mut *state_guard {
+                        state.fifo_lifo_mode = FifoLifoMode::None;
+                    }
+                    std::mem::drop(state_guard);
+                    ui::update_tray_tip_and_icon(hwnd);
+                    ui::show_notification(
+                        "キューが空になりました",
+                        "FIFO/LIFOペーストが完了し、通常モードに戻りました。",
+                        false,
+                    );
+                }
+            }
+        }
+        WM_TOGGLE_FIFO_LIFO => {
+            let target_mode = match wparam {
+                1 => FifoLifoMode::Fifo,
+                2 => FifoLifoMode::Lifo,
+                _ => FifoLifoMode::None,
+            };
+
+            let (_old_mode, new_mode) = {
+                let mut state_guard = lock_state();
+                if let Some(state) = &mut *state_guard {
+                    let old = state.fifo_lifo_mode;
+                    if old == target_mode {
+                        state.fifo_lifo_mode = FifoLifoMode::None;
+                    } else {
+                        state.fifo_lifo_mode = target_mode;
+                    }
+                    if state.fifo_lifo_mode == FifoLifoMode::None {
+                        state.fifo_lifo_queue.clear();
+                    }
+                    (old, state.fifo_lifo_mode)
+                } else {
+                    (FifoLifoMode::None, FifoLifoMode::None)
+                }
+            };
+
+            ui::update_tray_tip_and_icon(hwnd);
+
+            let notification_title = match new_mode {
+                FifoLifoMode::Fifo => "FIFO モード開始",
+                FifoLifoMode::Lifo => "LIFO モード開始",
+                FifoLifoMode::None => "通常モード (FIFO/LIFO 終了)",
+            };
+            let notification_body = match new_mode {
+                FifoLifoMode::Fifo => "コピーしたデータが古い順にペーストされます。\n(Ctrl+Shift+F で解除)",
+                FifoLifoMode::Lifo => "コピーしたデータが新しい順にペーストされます。\n(Ctrl+Shift+L で解除)",
+                FifoLifoMode::None => "通常モードに戻りました。",
+            };
+
+            ui::show_notification(notification_title, notification_body, false);
+        }
         win32::WM_CLIPBOARDUPDATE => {
             let is_excluded = if let Some(active_app) = util::get_active_process_name() {
                 state::CONFIG.get().map_or(false, |c| {
@@ -1373,16 +1492,39 @@ pub unsafe extern "system" fn window_proc(
                 && let Some(text) = util::get_clipboard_text()
                 && !text.is_empty()
             {
-                let history_to_save = {
+                let mut is_new = false;
+                let (mode, queue_updated) = {
                     let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
                         if text != state.last_clipboard_value {
                             state.last_clipboard_value = text.clone();
+                            is_new = true;
+
+                            let mut updated = false;
+                            if state.fifo_lifo_mode != FifoLifoMode::None {
+                                if state.fifo_lifo_queue.back() != Some(&text) {
+                                    state.fifo_lifo_queue.push_back(text.clone());
+                                    updated = true;
+                                }
+                            }
+                            (state.fifo_lifo_mode, updated)
+                        } else {
+                            (FifoLifoMode::None, false)
+                        }
+                    } else {
+                        (FifoLifoMode::None, false)
+                    }
+                };
+
+                if is_new {
+                    let history_to_save = {
+                        let mut state_guard = lock_state();
+                        if let Some(state) = &mut *state_guard {
                             let history = std::sync::Arc::make_mut(&mut state.history);
                             if let Some(pos) = history.iter().position(|x| x == &text) {
                                 history.remove(pos);
                             }
-                            history.push_front(text);
+                            history.push_front(text.clone());
                             let max_history = state::CONFIG.get().map_or(1000, |c| c.max_history);
                             if history.len() > max_history {
                                 history.pop_back();
@@ -1391,16 +1533,43 @@ pub unsafe extern "system" fn window_proc(
                         } else {
                             None
                         }
-                    } else {
-                        None
+                    };
+                    if let Some(history_arc) = history_to_save
+                        && state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        std::thread::spawn(move || {
+                            util::save_history(&history_arc);
+                        });
                     }
-                }; // Lock dropped here
-                if let Some(history_arc) = history_to_save
-                    && state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed)
-                {
-                    std::thread::spawn(move || {
-                        util::save_history(&history_arc);
-                    });
+                }
+
+                if queue_updated {
+                    ui::update_tray_tip_and_icon(hwnd);
+
+                    let len = {
+                        let state_guard = lock_state();
+                        state_guard.as_ref().map(|s| s.fifo_lifo_queue.len()).unwrap_or(0)
+                    };
+                    let mode_str = match mode {
+                        FifoLifoMode::Fifo => "FIFO",
+                        FifoLifoMode::Lifo => "LIFO",
+                        _ => "",
+                    };
+
+                    fn limit_text(text: &str, limit: usize) -> String {
+                        if text.chars().count() > limit {
+                            let taken: String = text.chars().take(limit - 3).collect();
+                            format!("{}...", taken)
+                        } else {
+                            text.to_string()
+                        }
+                    }
+
+                    ui::show_notification(
+                        &format!("{} キューに追加", mode_str),
+                        &format!("アイテムが追加されました。現在のキュー: {} 件\n{}", len, limit_text(&text, 40)),
+                        false,
+                    );
                 }
             }
         }

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-07-13
+
+### Added
+- 設定ファイル `config.toml` に、トレイから送信されるバルーン通知の表示有無を制御する `show_notifications` オプション（デフォルト: `true`）を追加。`show_notifications = false` に設定することで、FIFOモード切り替え時などの画面上に表示されるトースト通知（およびそれに伴うシステムサウンド）を完全に非表示にできるようになりました。
+
+### Changed
+- 履歴の表示用テキストの整形時における最大文字数を200文字に制限し、それを超える部分を `...` で切り捨てるように最適化。これにより、非常に長いテキストをコピーした際のリスト表示処理でのメモリ確保とループ負荷を削減し、リストアイテムの owner-draw 描画時のヒープ割当て発生を完全に回避しました。
+- 同一の検索文字列および Migemo 辞書のロード状態に対する正規表現（Regex）のコンパイル結果を最大16件キャッシュするよう最適化。バックスペースでの一字削除時やインクリメンタルサーチ時の検索応答速度が向上しました。
+- 履歴アイテムの個別削除時、設定の「履歴を保存する」トグル変更時、および「履歴をクリア」した際に行われる暗号化ファイル保存処理（ディスクI/O）をUIスレッドからバックグラウンドスレッドにオフロード（非同期化）。I/O待ちによるUIの一時的なフリーズやカクつきを解消しました。
+
+### Fixed
+- テストコードにおける `AppState` 構造体生成時に不足していたフィールドを追加し、ビルドエラーを修正しました。
+
 ## [0.1.10] - 2026-07-08
 
 ### Added
@@ -39,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.1.11]: https://github.com/cwatanab/Clipper/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/cwatanab/Clipper/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/cwatanab/Clipper/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/cwatanab/Clipper/releases/tag/v0.1.8
