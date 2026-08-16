@@ -47,6 +47,9 @@ pub struct Config {
     /// トースト通知が表示された際に効果音を鳴らすかどうか
     #[serde(default = "default_notification_sound")]
     pub notification_sound: bool,
+    /// タブバー（履歴・スニペット切替）を表示するかどうか
+    #[serde(default = "default_show_tabs")]
+    pub show_tabs: bool,
 }
 
 fn default_max_history() -> usize {
@@ -105,6 +108,11 @@ fn default_notification_sound() -> bool {
     false
 }
 
+/// タブ表示の可否のデフォルト値 (true)
+fn default_show_tabs() -> bool {
+    true
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -122,6 +130,7 @@ impl Default for Config {
             show_notifications: true,
             notification_duration: 2,
             notification_sound: false,
+            show_tabs: true,
         }
     }
 }
@@ -194,6 +203,7 @@ mod tests {
         assert_eq!(config.show_notifications, true);
         assert_eq!(config.notification_duration, 2);
         assert_eq!(config.notification_sound, false);
+        assert_eq!(config.show_tabs, true);
     }
 
     #[test]
@@ -213,6 +223,7 @@ mod tests {
             show_notifications = false
             notification_duration = 10
             notification_sound = true
+            show_tabs = false
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -229,6 +240,7 @@ mod tests {
         assert_eq!(config.show_notifications, false);
         assert_eq!(config.notification_duration, 10);
         assert_eq!(config.notification_sound, true);
+        assert_eq!(config.show_tabs, false);
     }
 
     #[test]
@@ -266,5 +278,23 @@ mod tests {
         "#;
         let config_custom: Config = toml::from_str(custom_toml).unwrap();
         assert_eq!(config_custom.sort_snippets, true);
+    }
+
+    #[test]
+    fn test_parse_show_tabs() {
+        let minimal_toml = r#"
+            font_name = "Segoe UI"
+            max_rows = 10
+        "#;
+        let config: Config = toml::from_str(minimal_toml).unwrap();
+        assert_eq!(config.show_tabs, true); // Default must be true
+
+        let custom_toml = r#"
+            font_name = "Segoe UI"
+            max_rows = 10
+            show_tabs = false
+        "#;
+        let config_custom: Config = toml::from_str(custom_toml).unwrap();
+        assert_eq!(config_custom.show_tabs, false);
     }
 }

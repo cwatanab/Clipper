@@ -60,8 +60,47 @@ const SHORTCUT_CHARS: &[char] = &[
     'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 ];
 
+pub fn layout_child_controls(_hwnd: win32::HWND, cw: i32, ch: i32, scale: f32) {
+    if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(hwnd_listbox))) =
+        (EDIT_HWND.get(), LISTBOX_HWND.get())
+    {
+        let margin = (6.0 * scale) as i32;
+        let tab_bar_h = (28.0 * scale) as i32;
+        let edit_container_h = (34.0 * scale) as i32;
+        let edit_h = (26.0 * scale) as i32;
+        let gap = (4.0 * scale) as i32;
+
+        let show_tabs = state::SHOW_TABS.load(Ordering::Relaxed);
+        let edit_container_y = if show_tabs {
+            margin + tab_bar_h + gap
+        } else {
+            margin
+        };
+        let listbox_y = edit_container_y + edit_container_h + gap;
+        let listbox_w = cw - margin * 2;
+        let listbox_h = ch - listbox_y - margin;
+
+        unsafe {
+            win32::MoveWindow(*hwnd_listbox, margin, listbox_y, listbox_w, listbox_h, 1);
+        }
+
+        let edit_y = edit_container_y + (edit_container_h - edit_h) / 2;
+        let edit_x = margin + (28.0 * scale) as i32; // margin + icon area
+        let edit_w = listbox_w - (60.0 * scale) as i32; // Align right edge with space for clear button
+
+        unsafe {
+            win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
+        }
+    }
+}
+
 // Update theme colors, brushes, fonts and apply to controls
 pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
+    let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+    update_theme_resources_with_scale(hwnd, is_dark, scale);
+}
+
+pub fn update_theme_resources_with_scale(hwnd: win32::HWND, is_dark: bool, scale: f32) {
     let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
 
     unsafe {
@@ -114,8 +153,6 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
         *BRUSH_BORDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_border));
         *BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()) = Some(SafeHBRUSH(brush_sel_bg));
 
-        // Scale sizes by DPI scale factor
-        let scale = win32::GetDpiForWindow(hwnd) as f32 / 96.0;
         let config = state::CONFIG.get().cloned().unwrap_or_default();
         let font_edit_size = (-16.0 * scale) as i32;
         let font_listbox_size = (-14.0 * scale) as i32;
@@ -259,6 +296,14 @@ pub fn update_theme_resources(hwnd: win32::HWND, is_dark: bool) {
 
             win32::InvalidateRect(*hwnd_edit, std::ptr::null(), 1);
             win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
+        }
+
+        let mut rc: win32::RECT = std::mem::zeroed();
+        win32::GetClientRect(hwnd, &mut rc);
+        let cw = rc.right - rc.left;
+        let ch = rc.bottom - rc.top;
+        if cw > 0 && ch > 0 {
+            layout_child_controls(hwnd, cw, ch, scale);
         }
 
         win32::InvalidateRect(hwnd, std::ptr::null(), 1);
@@ -662,38 +707,12 @@ pub unsafe extern "system" fn window_proc(
             update_theme_resources(hwnd, is_dark);
         }
         win32::WM_SIZE => {
-            if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(hwnd_listbox))) =
-                (EDIT_HWND.get(), LISTBOX_HWND.get())
-            {
-                let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
-                let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
-                unsafe { win32::GetClientRect(hwnd, &mut rc) };
-                let cw = rc.right - rc.left;
-                let ch = rc.bottom - rc.top;
-
-                let margin = (6.0 * scale) as i32;
-                let tab_bar_h = (28.0 * scale) as i32;
-                let edit_container_h = (34.0 * scale) as i32;
-                let edit_h = (26.0 * scale) as i32;
-                let gap = (4.0 * scale) as i32;
-
-                let edit_container_y = margin + tab_bar_h + gap;
-                let listbox_y = edit_container_y + edit_container_h + gap;
-                let listbox_w = cw - margin * 2;
-                let listbox_h = ch - listbox_y - margin;
-
-                unsafe {
-                    win32::MoveWindow(*hwnd_listbox, margin, listbox_y, listbox_w, listbox_h, 1);
-                }
-
-                let edit_y = edit_container_y + (edit_container_h - edit_h) / 2;
-                let edit_x = margin + (28.0 * scale) as i32; // margin + icon area
-                let edit_w = listbox_w - (60.0 * scale) as i32; // Align right edge with space for clear button
-
-                unsafe {
-                    win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
-                }
-            }
+            let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+            let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
+            unsafe { win32::GetClientRect(hwnd, &mut rc) };
+            let cw = rc.right - rc.left;
+            let ch = rc.bottom - rc.top;
+            layout_child_controls(hwnd, cw, ch, scale);
         }
         win32::WM_LBUTTONDOWN => {
             let x = (lparam & 0xFFFF) as i16 as i32;
@@ -708,8 +727,15 @@ pub unsafe extern "system" fn window_proc(
             let cw = client_rc.right - client_rc.left;
             let tab_bar_w = cw - margin * 2;
 
+            let show_tabs = state::SHOW_TABS.load(Ordering::Relaxed);
+
             // Check if click was inside the tab bar
-            if y >= margin && y <= margin + tab_bar_h && x >= margin && x <= margin + tab_bar_w {
+            if show_tabs
+                && y >= margin
+                && y <= margin + tab_bar_h
+                && x >= margin
+                && x <= margin + tab_bar_w
+            {
                 let clicked_idx = ((x - margin) / (tab_bar_w / 2)).clamp(0, 1);
                 let target_mode = if clicked_idx == 0 {
                     Mode::History
@@ -751,8 +777,12 @@ pub unsafe extern "system" fn window_proc(
 
             // Check if click was inside the clear button area of the search box
             let gap = (4.0 * scale) as i32;
-            let edit_container_h = (28.0 * scale) as i32;
-            let edit_container_y = margin + tab_bar_h + gap;
+            let edit_container_h = (34.0 * scale) as i32;
+            let edit_container_y = if show_tabs {
+                margin + tab_bar_h + gap
+            } else {
+                margin
+            };
             let listbox_w = cw - margin * 2;
             let clear_btn_left = margin + listbox_w - (34.0 * scale) as i32;
             let clear_btn_right = margin + listbox_w - (6.0 * scale) as i32;
@@ -1350,157 +1380,165 @@ pub unsafe extern "system" fn window_proc(
 
             let listbox_w = cw - margin * 2;
 
-            // Draw the tab bar (segment control) at the top
-            let tab_bar_rc = win32::RECT {
-                left: margin,
-                top: margin,
-                right: cw - margin,
-                bottom: margin + tab_bar_h,
-            };
+            let show_tabs = state::SHOW_TABS.load(Ordering::Relaxed);
 
-            let active_mode = {
-                let state_guard = lock_state();
-                state_guard
-                    .as_ref()
-                    .map(|s| s.mode)
-                    .unwrap_or(Mode::History)
-            };
-
-            unsafe {
-                let border_pen = win32::CreatePen(win32::PS_SOLID, 1, colors.border_color);
-                let old_pen = win32::SelectObject(hdc, border_pen);
-                let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
-                let old_brush = win32::SelectObject(hdc, bg_brush);
-                let round_r = (4.0 * scale) as i32;
-                win32::RoundRect(
-                    hdc,
-                    tab_bar_rc.left,
-                    tab_bar_rc.top,
-                    tab_bar_rc.right,
-                    tab_bar_rc.bottom,
-                    round_r,
-                    round_r,
-                );
-                win32::SelectObject(hdc, old_brush);
-                win32::DeleteObject(bg_brush);
-                win32::SelectObject(hdc, old_pen);
-                win32::DeleteObject(border_pen);
-            }
-
-            let padding = (2.0 * scale) as i32;
-            let tab_bar_w = tab_bar_rc.right - tab_bar_rc.left;
-            let active_idx = match active_mode {
-                Mode::History => 0,
-                Mode::Snippet => 1,
-            };
-
-            let font_to_use = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
-            let mut old_font = None;
-            if let Some(SafeHFONT(font)) = font_to_use.as_ref() {
-                old_font = Some(unsafe { win32::SelectObject(hdc, *font as win32::HGDIOBJ) });
-            }
-
-            for idx in 0..2 {
-                let (tab_name, icon_type) = if idx == 0 {
-                    ("履歴", IconType::History)
-                } else {
-                    ("スニペット", IconType::Snippet)
+            if show_tabs {
+                // Draw the tab bar (segment control) at the top
+                let tab_bar_rc = win32::RECT {
+                    left: margin,
+                    top: margin,
+                    right: cw - margin,
+                    bottom: margin + tab_bar_h,
                 };
 
-                let seg_left = tab_bar_rc.left + idx * (tab_bar_w / 2);
-                let seg_right = if idx == 0 {
-                    tab_bar_rc.left + tab_bar_w / 2
-                } else {
-                    tab_bar_rc.right
+                let active_mode = {
+                    let state_guard = lock_state();
+                    state_guard
+                        .as_ref()
+                        .map(|s| s.mode)
+                        .unwrap_or(Mode::History)
                 };
 
-                let is_active = idx == active_idx;
+                unsafe {
+                    let border_pen = win32::CreatePen(win32::PS_SOLID, 1, colors.border_color);
+                    let old_pen = win32::SelectObject(hdc, border_pen);
+                    let bg_brush = win32::CreateSolidBrush(colors.edit_bg);
+                    let old_brush = win32::SelectObject(hdc, bg_brush);
+                    let round_r = (4.0 * scale) as i32;
+                    win32::RoundRect(
+                        hdc,
+                        tab_bar_rc.left,
+                        tab_bar_rc.top,
+                        tab_bar_rc.right,
+                        tab_bar_rc.bottom,
+                        round_r,
+                        round_r,
+                    );
+                    win32::SelectObject(hdc, old_brush);
+                    win32::DeleteObject(bg_brush);
+                    win32::SelectObject(hdc, old_pen);
+                    win32::DeleteObject(border_pen);
+                }
 
-                if is_active {
-                    let pill_rc = win32::RECT {
-                        left: seg_left + padding,
-                        top: tab_bar_rc.top + padding,
-                        right: seg_right - padding,
-                        bottom: tab_bar_rc.bottom - padding,
+                let padding = (2.0 * scale) as i32;
+                let tab_bar_w = tab_bar_rc.right - tab_bar_rc.left;
+                let active_idx = match active_mode {
+                    Mode::History => 0,
+                    Mode::Snippet => 1,
+                };
+
+                let font_to_use = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
+                let mut old_font = None;
+                if let Some(SafeHFONT(font)) = font_to_use.as_ref() {
+                    old_font = Some(unsafe { win32::SelectObject(hdc, *font as win32::HGDIOBJ) });
+                }
+
+                for idx in 0..2 {
+                    let (tab_name, icon_type) = if idx == 0 {
+                        ("履歴", IconType::History)
+                    } else {
+                        ("スニペット", IconType::Snippet)
                     };
+
+                    let seg_left = tab_bar_rc.left + idx * (tab_bar_w / 2);
+                    let seg_right = if idx == 0 {
+                        tab_bar_rc.left + tab_bar_w / 2
+                    } else {
+                        tab_bar_rc.right
+                    };
+
+                    let is_active = idx == active_idx;
+
+                    if is_active {
+                        let pill_rc = win32::RECT {
+                            left: seg_left + padding,
+                            top: tab_bar_rc.top + padding,
+                            right: seg_right - padding,
+                            bottom: tab_bar_rc.bottom - padding,
+                        };
+                        unsafe {
+                            let pill_brush = win32::CreateSolidBrush(colors.sel_bg);
+                            let old_brush = win32::SelectObject(hdc, pill_brush);
+                            let old_pen =
+                                win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
+                            let round_size = (3.0 * scale) as i32;
+                            win32::RoundRect(
+                                hdc,
+                                pill_rc.left,
+                                pill_rc.top,
+                                pill_rc.right,
+                                pill_rc.bottom,
+                                round_size,
+                                round_size,
+                            );
+                            win32::SelectObject(hdc, old_brush);
+                            win32::SelectObject(hdc, old_pen);
+                            win32::DeleteObject(pill_brush);
+                        }
+                    }
+
+                    let w_text = util::to_wstring(tab_name);
+                    let mut size_struct = win32::SIZE { cx: 0, cy: 0 };
                     unsafe {
-                        let pill_brush = win32::CreateSolidBrush(colors.sel_bg);
-                        let old_brush = win32::SelectObject(hdc, pill_brush);
-                        let old_pen =
-                            win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
-                        let round_size = (3.0 * scale) as i32;
-                        win32::RoundRect(
+                        win32::GetTextExtentPoint32W(
                             hdc,
-                            pill_rc.left,
-                            pill_rc.top,
-                            pill_rc.right,
-                            pill_rc.bottom,
-                            round_size,
-                            round_size,
+                            w_text.as_ptr(),
+                            w_text.len() as i32,
+                            &mut size_struct,
                         );
-                        win32::SelectObject(hdc, old_brush);
-                        win32::SelectObject(hdc, old_pen);
-                        win32::DeleteObject(pill_brush);
+                    }
+
+                    let icon_w = (14.0 * scale) as i32;
+                    let spacing = (4.0 * scale) as i32;
+                    let total_content_w = icon_w + spacing + size_struct.cx;
+
+                    let seg_w = seg_right - seg_left;
+                    let content_left = seg_left + (seg_w - total_content_w) / 2;
+
+                    let icon_x = content_left;
+                    let icon_y = tab_bar_rc.top + (tab_bar_h - icon_w) / 2;
+
+                    let text_color = if is_active {
+                        colors.sel_text
+                    } else {
+                        colors.dim_text_color
+                    };
+
+                    draw_vector_icon(hdc, icon_type, icon_x, icon_y, icon_w, text_color);
+
+                    let mut text_rc = win32::RECT {
+                        left: icon_x + icon_w + spacing,
+                        top: tab_bar_rc.top,
+                        right: seg_right,
+                        bottom: tab_bar_rc.bottom,
+                    };
+
+                    unsafe {
+                        win32::SetTextColor(hdc, text_color);
+                        win32::SetBkMode(hdc, 1 /* TRANSPARENT */);
+                        win32::DrawTextW(
+                            hdc,
+                            w_text.as_ptr(),
+                            w_text.len() as i32,
+                            &mut text_rc,
+                            win32::DT_SINGLELINE
+                                | win32::DT_VCENTER
+                                | win32::DT_LEFT
+                                | win32::DT_NOPREFIX,
+                        );
                     }
                 }
 
-                let w_text = util::to_wstring(tab_name);
-                let mut size_struct = win32::SIZE { cx: 0, cy: 0 };
-                unsafe {
-                    win32::GetTextExtentPoint32W(
-                        hdc,
-                        w_text.as_ptr(),
-                        w_text.len() as i32,
-                        &mut size_struct,
-                    );
-                }
-
-                let icon_w = (14.0 * scale) as i32;
-                let spacing = (4.0 * scale) as i32;
-                let total_content_w = icon_w + spacing + size_struct.cx;
-
-                let seg_w = seg_right - seg_left;
-                let content_left = seg_left + (seg_w - total_content_w) / 2;
-
-                let icon_x = content_left;
-                let icon_y = tab_bar_rc.top + (tab_bar_h - icon_w) / 2;
-
-                let text_color = if is_active {
-                    colors.sel_text
-                } else {
-                    colors.dim_text_color
-                };
-
-                draw_vector_icon(hdc, icon_type, icon_x, icon_y, icon_w, text_color);
-
-                let mut text_rc = win32::RECT {
-                    left: icon_x + icon_w + spacing,
-                    top: tab_bar_rc.top,
-                    right: seg_right,
-                    bottom: tab_bar_rc.bottom,
-                };
-
-                unsafe {
-                    win32::SetTextColor(hdc, text_color);
-                    win32::SetBkMode(hdc, 1 /* TRANSPARENT */);
-                    win32::DrawTextW(
-                        hdc,
-                        w_text.as_ptr(),
-                        w_text.len() as i32,
-                        &mut text_rc,
-                        win32::DT_SINGLELINE
-                            | win32::DT_VCENTER
-                            | win32::DT_LEFT
-                            | win32::DT_NOPREFIX,
-                    );
+                if let Some(o_font) = old_font {
+                    unsafe { win32::SelectObject(hdc, o_font) };
                 }
             }
 
-            if let Some(o_font) = old_font {
-                unsafe { win32::SelectObject(hdc, o_font) };
-            }
-
-            let edit_container_y = margin + tab_bar_h + gap;
+            let edit_container_y = if show_tabs {
+                margin + tab_bar_h + gap
+            } else {
+                margin
+            };
             let container_rc = win32::RECT {
                 left: margin + gap_x,
                 top: edit_container_y,
@@ -1937,23 +1975,26 @@ pub unsafe extern "system" fn window_proc(
                 let state_guard = lock_state();
                 state_guard.as_ref().is_some_and(|s| s.is_dark)
             };
-            update_theme_resources(hwnd, is_dark);
 
             let prc = lparam as *const win32::RECT;
+            let dpi = (wparam & 0xFFFF) as u32;
+            let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
             if !prc.is_null() {
                 unsafe {
                     let rc = *prc;
+                    let (w, h) = ui::calculate_window_dimensions(scale);
                     win32::SetWindowPos(
                         hwnd,
                         std::ptr::null_mut(),
                         rc.left,
                         rc.top,
-                        rc.right - rc.left,
-                        rc.bottom - rc.top,
+                        w,
+                        h,
                         0x0010 /* SWP_NOZORDER */ | 0x0004, /* SWP_NOACTIVATE */
                     );
                 }
             }
+            update_theme_resources_with_scale(hwnd, is_dark, scale);
         }
         win32::WM_DESTROY => {
             // Clean up font objects (Mutex-backed fonts use .take() to clear)

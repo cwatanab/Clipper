@@ -75,6 +75,7 @@ exclude_apps = ["1Password.exe", "Bitwarden.exe", "KeePassXC.exe", "KeePass.exe"
 show_notifications = true   # トースト通知を有効にするかどうか (true/false)
 notification_duration = 2   # トースト通知の表示時間 (秒数、0を指定すると自動消去せず履歴に残します)
 notification_sound = false  # トースト通知時のサウンドの有無 (true/false)
+show_tabs = true            # タブバー（履歴・スニペット切替）を表示するかどうか (true/false)
 ```
 
 - **`exclude_apps`** (オプション): クリップボード履歴の収集対象から除外する実行ファイル名のリスト。

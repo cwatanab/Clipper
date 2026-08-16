@@ -38,6 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = config::Config::load();
     state::SAVE_HISTORY_TO_FILE.store(config.save_history, std::sync::atomic::Ordering::Relaxed);
+    state::SHOW_TABS.store(config.show_tabs, std::sync::atomic::Ordering::Relaxed);
     let _ = state::CONFIG.set(config);
 
     state::init_history_saver();
@@ -107,9 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         win32::RegisterClassW(&wnd_class);
 
-        let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        let initial_h = (max_rows as i32) * 26 + 84;
-        let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
+        let (initial_w, initial_h) = crate::ui::calculate_window_dimensions(1.0);
 
         let hwnd = win32::CreateWindowExW(
             win32::WS_EX_TOPMOST | win32::WS_EX_TOOLWINDOW,
@@ -118,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             win32::WS_POPUP, // Borderless, we will draw the border in WM_PAINT
             0,
             0,
-            base_width as i32,
+            initial_w,
             initial_h,
             std::ptr::null_mut(),
             std::ptr::null_mut(),

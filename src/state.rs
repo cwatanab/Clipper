@@ -77,6 +77,7 @@ pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
 pub static OTHER_KEY_PRESSED: AtomicBool = AtomicBool::new(false);
 pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
+pub static SHOW_TABS: AtomicBool = AtomicBool::new(true);
 pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
 pub const CLIPPER_MAGIC_INFO: usize = 0x12345678;
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);

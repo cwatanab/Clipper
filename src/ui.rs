@@ -6,6 +6,20 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::Duration;
 
+pub fn calculate_window_dimensions(scale: f32) -> (i32, i32) {
+    let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
+    let w = (base_width * scale).round() as i32;
+    let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
+    let item_h = (26.0 * scale).round() as i32;
+    let show_tabs = state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
+    let base_h = if show_tabs {
+        (82.0 * scale).round() as i32
+    } else {
+        (50.0 * scale).round() as i32
+    };
+    let h = (max_rows as i32) * item_h + base_h;
+    (w, h)
+}
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
 static EMPTY_WSTR: &[u16] = &[0u16];
 
@@ -382,25 +396,57 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
     if let (Some(SafeHWND(hwnd_main)), Some(SafeHWND(hwnd_edit))) =
         (MAIN_HWND.get(), EDIT_HWND.get())
     {
-        let target_hwnd = if !active_hwnd.is_null() {
-            active_hwnd
+        // 1. キャレット位置またはマウスカーソル位置を取得する
+        let mut target_pt: Option<win32::POINT> = None;
+        let mut caret_h = 0i32;
+
+        if !active_hwnd.is_null() {
+            let tid = unsafe { win32::GetWindowThreadProcessId(active_hwnd, std::ptr::null_mut()) };
+            let mut gui: win32::GUITHREADINFO = unsafe { std::mem::zeroed() };
+            gui.cbSize = std::mem::size_of::<win32::GUITHREADINFO>() as u32;
+            let gui_ok = unsafe { win32::GetGUIThreadInfo(tid, &mut gui) } != 0;
+
+            if gui_ok && !gui.hwndCaret.is_null() {
+                // 1. Standard Win32 caret API
+                let mut pt = win32::POINT {
+                    x: gui.rcCaret.left,
+                    y: gui.rcCaret.bottom,
+                };
+                unsafe { win32::ClientToScreen(gui.hwndCaret, &mut pt) };
+                caret_h = (gui.rcCaret.bottom - gui.rcCaret.top).max(0);
+                target_pt = Some(pt);
+            } else {
+                // 2. MSAA IAccessible fallback (works for some apps that don't use Win32 caret)
+                let focus_hwnd = if gui_ok && !gui.hwndFocus.is_null() {
+                    gui.hwndFocus
+                } else {
+                    active_hwnd
+                };
+                if let Some((cx, cy, _cw, ch)) = win32::get_caret_rect_accessible(focus_hwnd) {
+                    target_pt = Some(win32::POINT { x: cx, y: cy + ch });
+                    caret_h = ch.max(0);
+                }
+            }
+        }
+
+        // キャレットが取れなければマウスカーソル位置
+        let (pt, is_caret) = if let Some(p) = target_pt {
+            (p, true)
         } else {
-            *hwnd_main
-        };
-        let scale = if !target_hwnd.is_null() {
-            let dpi = unsafe { win32::GetDpiForWindow(target_hwnd) };
-            if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 }
-        } else {
-            let dpi = unsafe { win32::GetDpiForWindow(*hwnd_main) };
-            dpi as f32 / 96.0
+            let mut mouse_pt = win32::POINT { x: 0, y: 0 };
+            unsafe { win32::GetCursorPos(&mut mouse_pt) };
+            (mouse_pt, false)
         };
 
-        let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
-        let w = (base_width * scale) as i32; // Width with generous margins (scaled)
-        let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
-        let item_h = (26.0 * scale) as i32;
-        let base_h = (84.0 * scale) as i32;
-        let h = (max_rows as i32) * item_h + base_h;
+        // 2. カーソル/キャレット位置が属するモニターを特定する
+        let h_monitor = unsafe {
+            let mon = win32::MonitorFromPoint(pt, win32::MONITOR_DEFAULTTONEAREST);
+            if mon.is_null() && !active_hwnd.is_null() {
+                win32::MonitorFromWindow(active_hwnd, win32::MONITOR_DEFAULTTONEAREST)
+            } else {
+                mon
+            }
+        };
 
         let mut work_rect = win32::RECT {
             left: 0,
@@ -410,17 +456,13 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         };
         let mut got_monitor = false;
 
-        if !target_hwnd.is_null() {
+        if !h_monitor.is_null() {
             unsafe {
-                let h_monitor =
-                    win32::MonitorFromWindow(target_hwnd, win32::MONITOR_DEFAULTTONEAREST);
-                if !h_monitor.is_null() {
-                    let mut mi: win32::MONITORINFO = std::mem::zeroed();
-                    mi.cbSize = std::mem::size_of::<win32::MONITORINFO>() as u32;
-                    if win32::GetMonitorInfoW(h_monitor, &mut mi) != 0 {
-                        work_rect = mi.rcWork;
-                        got_monitor = true;
-                    }
+                let mut mi: win32::MONITORINFO = std::mem::zeroed();
+                mi.cbSize = std::mem::size_of::<win32::MONITORINFO>() as u32;
+                if win32::GetMonitorInfoW(h_monitor, &mut mi) != 0 {
+                    work_rect = mi.rcWork;
+                    got_monitor = true;
                 }
             }
         }
@@ -436,54 +478,75 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             };
         }
 
-        let (mut x, mut y) = (
-            work_rect.left + (work_rect.right - work_rect.left - w) / 2,
-            work_rect.top + (work_rect.bottom - work_rect.top - h) / 2,
-        );
+        // 3. 対象モニターの DPI スケールを決定する
+        let scale = unsafe {
+            let mut dpi = 0u32;
+            if !h_monitor.is_null() {
+                // Try GetDpiForMonitor from shcore.dll
+                type GetDpiForMonitorFn = unsafe extern "system" fn(
+                    *mut std::ffi::c_void,
+                    i32,
+                    *mut u32,
+                    *mut u32,
+                ) -> i32;
 
-        if !active_hwnd.is_null() {
-            let tid = unsafe { win32::GetWindowThreadProcessId(active_hwnd, std::ptr::null_mut()) };
-            let mut gui: win32::GUITHREADINFO = unsafe { std::mem::zeroed() };
-            gui.cbSize = std::mem::size_of::<win32::GUITHREADINFO>() as u32;
-            let gui_ok = unsafe { win32::GetGUIThreadInfo(tid, &mut gui) } != 0;
-
-            if gui_ok && !gui.hwndCaret.is_null() {
-                // 1. Standard Win32 caret API
-                let mut pt = win32::POINT {
-                    x: gui.rcCaret.left,
-                    y: gui.rcCaret.bottom,
-                };
-                unsafe { win32::ClientToScreen(gui.hwndCaret, &mut pt) };
-                x = pt.x;
-                y = pt.y + (4.0 * scale) as i32;
-            } else {
-                // 2. MSAA IAccessible fallback (works for some apps that don't use Win32 caret)
-                let focus_hwnd = if gui_ok && !gui.hwndFocus.is_null() {
-                    gui.hwndFocus
-                } else {
-                    active_hwnd
-                };
-                if let Some((cx, cy, _cw, ch)) = win32::get_caret_rect_accessible(focus_hwnd) {
-                    x = cx;
-                    y = cy + ch + (4.0 * scale) as i32;
-                } else {
-                    // 3. Mouse cursor position as last resort
-                    let mut pt = win32::POINT { x: 0, y: 0 };
-                    unsafe { win32::GetCursorPos(&mut pt) };
-                    x = pt.x;
-                    y = pt.y + (10.0 * scale) as i32;
+                let mut shcore = win32::GetModuleHandleW(util::to_wstring("shcore.dll").as_ptr());
+                if shcore.is_null() {
+                    shcore = win32::LoadLibraryW(util::to_wstring("shcore.dll").as_ptr());
+                }
+                if !shcore.is_null() {
+                    let proc_addr = win32::GetProcAddress(shcore, b"GetDpiForMonitor\0".as_ptr());
+                    if !proc_addr.is_null() {
+                        let func: GetDpiForMonitorFn = std::mem::transmute(proc_addr);
+                        let mut dpi_x = 0u32;
+                        let mut dpi_y = 0u32;
+                        if func(h_monitor, 0 /* MDT_EFFECTIVE_DPI */, &mut dpi_x, &mut dpi_y) == 0 && dpi_x > 0 {
+                            dpi = dpi_x;
+                        }
+                    }
                 }
             }
-        }
 
+            if dpi == 0 && !active_hwnd.is_null() {
+                dpi = win32::GetDpiForWindow(active_hwnd);
+            }
+            if dpi == 0 {
+                dpi = win32::GetDpiForWindow(*hwnd_main);
+            }
+            if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 }
+        };
+
+        // 4. ウィンドウサイズを計算
+        let (w, h) = calculate_window_dimensions(scale);
+
+        // 5. 初期配置位置を計算
+        let gap_y = if is_caret {
+            (4.0 * scale) as i32
+        } else {
+            (10.0 * scale) as i32
+        };
+
+        let mut x = pt.x;
+        let mut y = pt.y + gap_y;
+
+        // 6. work_rect 内にクランプ（はみ出し防止 & フリップ処理）
+        // 横方向のはみ出し防止
         if x + w > work_rect.right {
             x = work_rect.right - w;
         }
-        if y + h > work_rect.bottom {
-            y = work_rect.bottom - h;
-        }
         if x < work_rect.left {
             x = work_rect.left;
+        }
+
+        // 縦方向のはみ出し防止
+        if y + h > work_rect.bottom {
+            if is_caret && (pt.y - caret_h - h - gap_y >= work_rect.top) {
+                // キャレットの上に反転配置
+                y = pt.y - caret_h - h - gap_y;
+            } else {
+                // 下端にクランプ
+                y = work_rect.bottom - h;
+            }
         }
         if y < work_rect.top {
             y = work_rect.top;
@@ -537,7 +600,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 h,
                 0x0040, /* SWP_SHOWWINDOW */
             );
-            crate::wndproc::update_theme_resources(*hwnd_main, is_dark);
+            crate::wndproc::update_theme_resources_with_scale(*hwnd_main, is_dark, scale);
 
             let foreground = win32::GetForegroundWindow();
             if !foreground.is_null() && foreground != *hwnd_main {
@@ -815,6 +878,19 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("履歴をファイルに保存する").as_ptr(),
         );
 
+        let is_show_tabs = state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
+        let check_tabs_flag = if is_show_tabs {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
+        win32::AppendMenuW(
+            menu,
+            check_tabs_flag,
+            1014,
+            util::to_wstring("タブを表示する").as_ptr(),
+        );
+
         win32::AppendMenuW(menu, 0, 1009, util::to_wstring("履歴をクリア").as_ptr());
 
         // FIFO / LIFO モードのメニュー項目
@@ -976,6 +1052,42 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             if let Some(history_arc) = history_to_save {
                 if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
                     let _ = sender.send(history_arc);
+                }
+            }
+        }
+    } else if cmd == 1014 {
+        let new_val = !state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
+        state::SHOW_TABS.store(new_val, std::sync::atomic::Ordering::Relaxed);
+
+        // Update config.toml
+        if let Some(config) = state::CONFIG.get() {
+            let mut new_config = config.clone();
+            new_config.show_tabs = new_val;
+            new_config.save();
+        }
+
+        if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+            let visible = {
+                let state_guard = lock_state();
+                state_guard.as_ref().is_some_and(|s| s.visible)
+            };
+            if visible {
+                let scale = unsafe { win32::GetDpiForWindow(*hwnd_main) } as f32 / 96.0;
+                let (w, h) = calculate_window_dimensions(scale);
+
+                let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
+                unsafe {
+                    win32::GetWindowRect(*hwnd_main, &mut rc);
+                    win32::SetWindowPos(
+                        *hwnd_main,
+                        std::ptr::null_mut(),
+                        rc.left,
+                        rc.top,
+                        w,
+                        h,
+                        0x0004 /* SWP_NOZORDER */ | 0x0020 /* SWP_FRAMECHANGED */,
+                    );
+                    win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
                 }
             }
         }

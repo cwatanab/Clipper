@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-17
+
+### Added
+- **タブバー表示切替機能 (`show_tabs`) の追加**: 履歴・定型文モード切り替えタブバーの表示・非表示を設定ファイル (`config.toml`) およびタスクトレイメニューから動的に切り替えられるようにしました。非表示時はウィンドウ高さが自動でコンパクトに縮小されます。
+- **マルチモニター・Per-Monitor DPI V2 対応**: キャレットおよびマウスカーソルの現在座標から対象モニターを正確に特定（`MonitorFromPoint`）し、モニターごとの作業領域（`work_rect`）および DPI スケールに合わせたウィンドウ配置・サイズ調整に対応しました。
+- **MSVC ビルド環境・手順の整備**: `x86_64-pc-windows-msvc` ターゲットでのビルド手順書 (`BUILD.md`) を追加。クロスコンパイル環境での Windows リソースコンパイラ（`llvm-rc`）自動検出に対応しました。
+
+### Fixed
+- **マルチモニター環境での表示位置ズレの修正**: ウィンドウ表示位置の決定前にモニター作業領域を判定していたことで、別モニターの座標系でクランプされて画面端へ飛ぶ問題を修正しました。
+- **モニター跨ぎ・DPI変更時の表示崩れの修正**: ウィンドウ移動（`SetWindowPos`）とフォント・アイテム高さ（`LB_SETITEMHEIGHT`）の同期タイミングを是正し、スケーリング変更時に文字や行枠が崩れる不具合を解消しました。
+
 ## [0.2.0] - 2026-07-13
 
 ### Added
@@ -77,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.3.0]: https://github.com/cwatanab/Clipper/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwatanab/Clipper/compare/v0.1.12...v0.2.0
 [0.1.12]: https://github.com/cwatanab/Clipper/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/cwatanab/Clipper/compare/v0.1.10...v0.1.11

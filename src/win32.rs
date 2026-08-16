@@ -473,6 +473,7 @@ mod windows {
         pub fn GetDpiForWindow(hwnd: HWND) -> u32;
         pub fn SetProcessDpiAwarenessContext(value: *mut c_void) -> BOOL;
         pub fn MonitorFromWindow(hwnd: HWND, dwFlags: u32) -> *mut c_void;
+        pub fn MonitorFromPoint(pt: POINT, dwFlags: u32) -> *mut c_void;
         pub fn GetMonitorInfoW(hMonitor: *mut c_void, lpmi: *mut MONITORINFO) -> BOOL;
         pub fn AddClipboardFormatListener(hwnd: HWND) -> BOOL;
         pub fn RemoveClipboardFormatListener(hwnd: HWND) -> BOOL;
@@ -559,6 +560,7 @@ mod windows {
         pub fn CloseHandle(hObject: *mut c_void) -> BOOL;
         pub fn GetCurrentThreadId() -> u32;
         pub fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: BOOL) -> BOOL;
+        pub fn LoadLibraryW(lpLibFileName: *const u16) -> HINSTANCE;
         pub fn GetProcAddress(hModule: HINSTANCE, lpProcName: *const u8) -> *mut c_void;
         pub fn LocalFree(hMem: *mut c_void) -> *mut c_void;
         pub fn GetCurrentProcess() -> *mut c_void;
@@ -886,9 +888,7 @@ mod windows {
     pub unsafe fn AttachThreadInput(_a: u32, _b: u32, _c: i32) -> i32 {
         0
     }
-    pub unsafe fn GetProcAddress(_m: HWND, _n: *const u8) -> *mut std::ffi::c_void {
-        std::ptr::null_mut()
-    }
+
     pub unsafe fn DwmSetWindowAttribute(
         _h: HWND,
         _a: u32,
@@ -1072,6 +1072,18 @@ mod windows {
     }
     pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
     pub unsafe fn MonitorFromWindow(_hwnd: HWND, _dw_flags: u32) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn MonitorFromPoint(_pt: POINT, _dw_flags: u32) -> *mut std::ffi::c_void {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn LoadLibraryW(_lp_lib_file_name: *const u16) -> HINSTANCE {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn GetProcAddress(
+        _h_module: HINSTANCE,
+        _lp_proc_name: *const u8,
+    ) -> *mut std::ffi::c_void {
         std::ptr::null_mut()
     }
     pub unsafe fn GetMonitorInfoW(
