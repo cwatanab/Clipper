@@ -60,36 +60,23 @@ const SHORTCUT_CHARS: &[char] = &[
     'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 ];
 
-pub fn layout_child_controls(_hwnd: win32::HWND, cw: i32, ch: i32, scale: f32) {
+pub fn layout_child_controls(_hwnd: win32::HWND, cw: i32, _ch: i32, scale: f32) {
     if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(hwnd_listbox))) =
         (EDIT_HWND.get(), LISTBOX_HWND.get())
     {
-        let margin = (6.0 * scale) as i32;
-        let tab_bar_h = (28.0 * scale) as i32;
-        let edit_container_h = (34.0 * scale) as i32;
-        let edit_h = (26.0 * scale) as i32;
-        let gap = (4.0 * scale) as i32;
-
-        let show_tabs = state::SHOW_TABS.load(Ordering::Relaxed);
-        let edit_container_y = if show_tabs {
-            margin + tab_bar_h + gap
-        } else {
-            margin
-        };
-        let listbox_y = edit_container_y + edit_container_h + gap;
-        let listbox_w = cw - margin * 2;
-        let listbox_h = ch - listbox_y - margin;
+        let m = crate::ui::UiMetrics::get(scale);
+        let listbox_w = cw - m.margin * 2;
 
         unsafe {
-            win32::MoveWindow(*hwnd_listbox, margin, listbox_y, listbox_w, listbox_h, 1);
+            win32::MoveWindow(*hwnd_listbox, m.margin, m.listbox_y, listbox_w, m.listbox_h, 1);
         }
 
-        let edit_y = edit_container_y + (edit_container_h - edit_h) / 2;
-        let edit_x = margin + (28.0 * scale) as i32; // margin + icon area
-        let edit_w = listbox_w - (60.0 * scale) as i32; // Align right edge with space for clear button
+        let edit_y = m.edit_container_y + (m.edit_container_h - m.edit_h) / 2;
+        let edit_x = m.margin + (28.0 * scale).round() as i32; // margin + icon area
+        let edit_w = listbox_w - (60.0 * scale).round() as i32; // Align right edge with space for clear button
 
         unsafe {
-            win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, edit_h, 1);
+            win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, m.edit_h, 1);
         }
     }
 }
@@ -269,16 +256,16 @@ pub fn update_theme_resources_with_scale(hwnd: win32::HWND, is_dark: bool, scale
             }
 
             // Update listbox item height dynamically for high-DPI scaling
-            let item_h = (26.0 * scale) as usize;
+            let m = crate::ui::UiMetrics::get(scale);
             win32::SendMessageW(
                 *hwnd_listbox,
                 0x01A0, /* LB_SETITEMHEIGHT */
                 0,
-                item_h as win32::LPARAM,
+                m.item_h as win32::LPARAM,
             );
 
-            // Add padding to edit box (6px margin left and right)
-            let margin_scaled = (6.0 * scale) as i32;
+            // Add padding to edit box (margin left and right)
+            let margin_scaled = m.margin;
             win32::SendMessageW(
                 *hwnd_edit,
                 EM_SETMARGINS,
@@ -684,24 +671,23 @@ pub unsafe extern "system" fn window_proc(
             let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
 
             let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
-            let margin = (6.0 * scale) as i32;
-            let tab_bar_h = (28.0 * scale) as i32;
+            let m = crate::ui::UiMetrics::get(scale);
 
             let mut client_rc: win32::RECT = unsafe { std::mem::zeroed() };
             unsafe { win32::GetClientRect(hwnd, &mut client_rc) };
             let cw = client_rc.right - client_rc.left;
-            let tab_bar_w = cw - margin * 2;
+            let tab_bar_w = cw - m.margin * 2;
 
             let show_tabs = state::SHOW_TABS.load(Ordering::Relaxed);
 
             // Check if click was inside the tab bar
             if show_tabs
-                && y >= margin
-                && y <= margin + tab_bar_h
-                && x >= margin
-                && x <= margin + tab_bar_w
+                && y >= m.margin
+                && y <= m.margin + m.tab_bar_h
+                && x >= m.margin
+                && x <= m.margin + tab_bar_w
             {
-                let clicked_idx = ((x - margin) / (tab_bar_w / 2)).clamp(0, 1);
+                let clicked_idx = ((x - m.margin) / (tab_bar_w / 2)).clamp(0, 1);
                 let target_mode = if clicked_idx == 0 {
                     Mode::History
                 } else {
@@ -741,18 +727,11 @@ pub unsafe extern "system" fn window_proc(
             }
 
             // Check if click was inside the clear button area of the search box
-            let gap = (4.0 * scale) as i32;
-            let edit_container_h = (34.0 * scale) as i32;
-            let edit_container_y = if show_tabs {
-                margin + tab_bar_h + gap
-            } else {
-                margin
-            };
-            let listbox_w = cw - margin * 2;
-            let clear_btn_left = margin + listbox_w - (34.0 * scale) as i32;
-            let clear_btn_right = margin + listbox_w - (6.0 * scale) as i32;
-            let clear_btn_top = edit_container_y;
-            let clear_btn_bottom = edit_container_y + edit_container_h;
+            let listbox_w = cw - m.margin * 2;
+            let clear_btn_left = m.margin + listbox_w - (34.0 * scale).round() as i32;
+            let clear_btn_right = m.margin + listbox_w - (6.0 * scale).round() as i32;
+            let clear_btn_top = m.edit_container_y;
+            let clear_btn_bottom = m.edit_container_y + m.edit_container_h;
 
             if x >= clear_btn_left && x <= clear_btn_right && y >= clear_btn_top && y <= clear_btn_bottom {
                 let has_text = unsafe {
@@ -1336,12 +1315,11 @@ pub unsafe extern "system" fn window_proc(
             unsafe { win32::GetClientRect(hwnd, &mut client_rc) };
             let cw = client_rc.right - client_rc.left;
 
-            // Draw a rounded input container border/background (scaled)
-            let margin = (6.0 * scale) as i32;
-            let gap_x = (2.0 * scale) as i32;
-            let tab_bar_h = (28.0 * scale) as i32;
-            let edit_container_h = (34.0 * scale) as i32;
-            let gap = (4.0 * scale) as i32;
+            let m = crate::ui::UiMetrics::get(scale);
+            let margin = m.margin;
+            let gap_x = (2.0 * scale).round() as i32;
+            let tab_bar_h = m.tab_bar_h;
+            let edit_container_h = m.edit_container_h;
 
             let listbox_w = cw - margin * 2;
 
@@ -1499,11 +1477,7 @@ pub unsafe extern "system" fn window_proc(
                 }
             }
 
-            let edit_container_y = if show_tabs {
-                margin + tab_bar_h + gap
-            } else {
-                margin
-            };
+            let edit_container_y = m.edit_container_y;
             let container_rc = win32::RECT {
                 left: margin + gap_x,
                 top: edit_container_y,

@@ -6,19 +6,61 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy)]
+pub struct UiMetrics {
+    pub margin: i32,
+    pub tab_bar_h: i32,
+    pub edit_container_h: i32,
+    pub edit_h: i32,
+    pub item_h: i32,
+    pub edit_container_y: i32,
+    pub listbox_y: i32,
+    pub listbox_h: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl UiMetrics {
+    pub fn get(scale: f32) -> Self {
+        let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
+        let max_rows = state::CONFIG.get().map_or(16, |c| c.max_rows);
+        let show_tabs = state::SHOW_TABS.load(Ordering::Relaxed);
+
+        let margin = (6.0 * scale).round() as i32;
+        let tab_bar_h = if show_tabs { (28.0 * scale).round() as i32 } else { 0 };
+        let gap = (4.0 * scale).round() as i32;
+        let edit_container_h = (34.0 * scale).round() as i32;
+        let edit_h = (26.0 * scale).round() as i32;
+        let item_h = (26.0 * scale).round() as i32;
+
+        let edit_container_y = if show_tabs {
+            margin + tab_bar_h + gap
+        } else {
+            margin
+        };
+        let listbox_y = edit_container_y + edit_container_h + gap;
+        let listbox_h = (max_rows as i32) * item_h;
+        let width = (base_width * scale).round() as i32;
+        let height = listbox_y + listbox_h + margin;
+
+        Self {
+            margin,
+            tab_bar_h,
+            edit_container_h,
+            edit_h,
+            item_h,
+            edit_container_y,
+            listbox_y,
+            listbox_h,
+            width,
+            height,
+        }
+    }
+}
+
 pub fn calculate_window_dimensions(scale: f32) -> (i32, i32) {
-    let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
-    let w = (base_width * scale).round() as i32;
-    let max_rows = state::CONFIG.get().map_or(16, |c| c.max_rows);
-    let item_h = (26.0 * scale).round() as i32;
-    let show_tabs = state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
-    let base_h = if show_tabs {
-        (82.0 * scale).round() as i32
-    } else {
-        (50.0 * scale).round() as i32
-    };
-    let h = (max_rows as i32) * item_h + base_h;
-    (w, h)
+    let m = UiMetrics::get(scale);
+    (m.width, m.height)
 }
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
 static EMPTY_WSTR: &[u16] = &[0u16];
