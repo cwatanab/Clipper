@@ -117,7 +117,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             font_name: "Meiryo UI".to_string(),
-            max_rows: 15,
+            max_rows: 16,
             max_history: 1000,
             width: 380.0,
             double_tap_ms: 300,

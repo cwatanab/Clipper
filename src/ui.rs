@@ -9,7 +9,7 @@ use std::time::Duration;
 pub fn calculate_window_dimensions(scale: f32) -> (i32, i32) {
     let base_width = state::CONFIG.get().map_or(380.0, |c| c.width);
     let w = (base_width * scale).round() as i32;
-    let max_rows = state::CONFIG.get().map_or(15, |c| c.max_rows);
+    let max_rows = state::CONFIG.get().map_or(16, |c| c.max_rows);
     let item_h = (26.0 * scale).round() as i32;
     let show_tabs = state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
     let base_h = if show_tabs {
