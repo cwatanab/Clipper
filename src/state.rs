@@ -127,18 +127,7 @@ impl KeyTriggerKind {
 
     #[inline(always)]
     pub fn from_u8(val: u8) -> Self {
-        match val {
-            1 => KeyTriggerKind::Shift,
-            2 => KeyTriggerKind::LShift,
-            3 => KeyTriggerKind::RShift,
-            4 => KeyTriggerKind::Ctrl,
-            5 => KeyTriggerKind::LCtrl,
-            6 => KeyTriggerKind::RCtrl,
-            7 => KeyTriggerKind::Alt,
-            8 => KeyTriggerKind::LAlt,
-            9 => KeyTriggerKind::RAlt,
-            _ => KeyTriggerKind::None,
-        }
+        if val <= 9 { unsafe { std::mem::transmute(val) } } else { KeyTriggerKind::None }
     }
 }
 

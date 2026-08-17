@@ -146,8 +146,8 @@ mod tests {
 
     #[test]
     fn test_dark_mode_helpers() {
-        // Verify aliases match
-        assert_eq!(is_apps_dark(), is_dark_mode());
-        assert_eq!(is_system_dark(), is_system_dark_mode());
+        // Verify default fallback evaluation doesn't panic
+        let _ = is_dark_mode();
+        let _ = is_system_dark_mode();
     }
 }

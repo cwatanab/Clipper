@@ -389,13 +389,10 @@ pub fn render_template(template_str: &str, clipboard_text: &str) -> String {
                 if chars.len() < 19 {
                     return Ok(value);
                 }
-                let year: String = chars[0..4].iter().collect();
-                let month: String = chars[5..7].iter().collect();
-                let day: String = chars[8..10].iter().collect();
-                let hour: String = chars[11..13].iter().collect();
-                let minute: String = chars[14..16].iter().collect();
-                let second: String = chars[17..19].iter().collect();
-                let year_yy: String = chars[2..4].iter().collect();
+                let sub = |a: usize, b: usize| -> String { chars[a..b].iter().collect() };
+                let (year, month, day) = (sub(0, 4), sub(5, 7), sub(8, 10));
+                let (hour, minute, second, year_yy) =
+                    (sub(11, 13), sub(14, 16), sub(17, 19), sub(2, 4));
 
                 let fmt_str = fmt.as_deref().unwrap_or("long");
                 let formatted = match fmt_str {
