@@ -137,16 +137,7 @@ impl Default for Config {
 
 impl Config {
     pub fn get_path() -> PathBuf {
-        let mut path = if let Ok(app_data) = std::env::var("APPDATA") {
-            PathBuf::from(app_data)
-        } else if let Ok(user_profile) = std::env::var("USERPROFILE") {
-            PathBuf::from(user_profile)
-        } else {
-            PathBuf::from(".")
-        };
-        path.push("Clipper");
-        path.push("config.toml");
-        path
+        crate::util::get_app_dir().join("config.toml")
     }
 
     pub fn load() -> Self {

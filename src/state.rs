@@ -72,6 +72,76 @@ pub struct SafeHFONT(pub win32::HFONT);
 unsafe impl Send for SafeHFONT {}
 unsafe impl Sync for SafeHFONT {}
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum KeyTriggerKind {
+    None = 0,
+    Shift = 1,
+    LShift = 2,
+    RShift = 3,
+    Ctrl = 4,
+    LCtrl = 5,
+    RCtrl = 6,
+    Alt = 7,
+    LAlt = 8,
+    RAlt = 9,
+}
+
+impl KeyTriggerKind {
+    pub fn parse(key_name: &str) -> Self {
+        match key_name.to_lowercase().as_str() {
+            "shift" => KeyTriggerKind::Shift,
+            "lshift" | "left_shift" => KeyTriggerKind::LShift,
+            "rshift" | "right_shift" => KeyTriggerKind::RShift,
+            "ctrl" | "control" => KeyTriggerKind::Ctrl,
+            "lctrl" | "left_ctrl" | "lcontrol" | "left_control" => KeyTriggerKind::LCtrl,
+            "rctrl" | "right_ctrl" | "rcontrol" | "right_control" => KeyTriggerKind::RCtrl,
+            "alt" | "menu" => KeyTriggerKind::Alt,
+            "lalt" | "left_alt" | "lmenu" | "left_menu" => KeyTriggerKind::LAlt,
+            "ralt" | "right_alt" | "rmenu" | "right_menu" => KeyTriggerKind::RAlt,
+            _ => KeyTriggerKind::None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn matches(&self, vk: u16) -> bool {
+        match self {
+            KeyTriggerKind::Shift => {
+                vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT
+            }
+            KeyTriggerKind::LShift => vk == win32::VK_LSHIFT,
+            KeyTriggerKind::RShift => vk == win32::VK_RSHIFT,
+            KeyTriggerKind::Ctrl => {
+                vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL
+            }
+            KeyTriggerKind::LCtrl => vk == win32::VK_LCONTROL,
+            KeyTriggerKind::RCtrl => vk == win32::VK_RCONTROL,
+            KeyTriggerKind::Alt => {
+                vk == win32::VK_MENU || vk == win32::VK_LMENU || vk == win32::VK_RMENU
+            }
+            KeyTriggerKind::LAlt => vk == win32::VK_LMENU,
+            KeyTriggerKind::RAlt => vk == win32::VK_RMENU,
+            KeyTriggerKind::None => false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn from_u8(val: u8) -> Self {
+        match val {
+            1 => KeyTriggerKind::Shift,
+            2 => KeyTriggerKind::LShift,
+            3 => KeyTriggerKind::RShift,
+            4 => KeyTriggerKind::Ctrl,
+            5 => KeyTriggerKind::LCtrl,
+            6 => KeyTriggerKind::RCtrl,
+            7 => KeyTriggerKind::Alt,
+            8 => KeyTriggerKind::LAlt,
+            9 => KeyTriggerKind::RAlt,
+            _ => KeyTriggerKind::None,
+        }
+    }
+}
+
 pub static LAST_KEY_VK: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEY_TIME: AtomicU32 = AtomicU32::new(0);
 pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
@@ -79,8 +149,34 @@ pub static OTHER_KEY_PRESSED: AtomicBool = AtomicBool::new(false);
 pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
 pub static SHOW_TABS: AtomicBool = AtomicBool::new(true);
 pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
+pub static FIFO_LIFO_ACTIVE: AtomicBool = AtomicBool::new(false);
+pub static FIFO_LIFO_HAS_ITEMS: AtomicBool = AtomicBool::new(false);
+pub static SNIPPET_KEY_KIND: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(KeyTriggerKind::LShift as u8);
+pub static HISTORY_KEY_KIND: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(KeyTriggerKind::LCtrl as u8);
+pub static DOUBLE_TAP_MS: AtomicU32 = AtomicU32::new(300);
 pub const CLIPPER_MAGIC_INFO: usize = 0x12345678;
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
+
+pub fn sync_fifo_lifo_state(state: &AppState) {
+    FIFO_LIFO_ACTIVE.store(
+        state.fifo_lifo_mode != FifoLifoMode::None,
+        std::sync::atomic::Ordering::Release,
+    );
+    FIFO_LIFO_HAS_ITEMS.store(
+        !state.fifo_lifo_queue.is_empty(),
+        std::sync::atomic::Ordering::Release,
+    );
+}
+
+pub fn update_hook_config(config: &Config) {
+    let snippet_kind = KeyTriggerKind::parse(&config.snippet_key);
+    let history_kind = KeyTriggerKind::parse(&config.history_key);
+    SNIPPET_KEY_KIND.store(snippet_kind as u8, std::sync::atomic::Ordering::Release);
+    HISTORY_KEY_KIND.store(history_kind as u8, std::sync::atomic::Ordering::Release);
+    DOUBLE_TAP_MS.store(config.double_tap_ms, std::sync::atomic::Ordering::Release);
+}
 
 /// Poison-safe lock helper for APP_STATE.
 /// Recovers from poisoned mutex instead of panicking.
@@ -98,21 +194,9 @@ pub static OLD_EDIT_PROC: OnceLock<SafeWndProc> = OnceLock::new();
 pub static OLD_LISTBOX_PROC: OnceLock<SafeWndProc> = OnceLock::new();
 pub static MOUSE_HOOK: Mutex<Option<SafeHHOOK>> = Mutex::new(None);
 use rustmigemo::migemo::compact_dictionary::CompactDictionary;
-pub static MIGEMO_DICT: Mutex<Option<Arc<CompactDictionary>>> = Mutex::new(None);
 
-pub fn get_migemo_dict() -> Option<Arc<CompactDictionary>> {
-    let mut guard = MIGEMO_DICT.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.is_none()
-        && let Some(dict) = crate::dict::load()
-    {
-        *guard = Some(Arc::new(dict));
-    }
-    guard.clone()
-}
-
-pub fn clear_migemo_dict() {
-    let mut guard = MIGEMO_DICT.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = None;
+pub fn get_migemo_dict() -> Option<&'static CompactDictionary> {
+    crate::dict::get_dictionary()
 }
 
 pub static BRUSH_BG: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
@@ -163,6 +247,19 @@ pub fn init_history_saver() {
                 }
             }
         });
+    }
+}
+
+pub fn flush_history_saver() {
+    if !SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let history_opt = {
+        let state_guard = lock_state();
+        state_guard.as_ref().map(|s| Arc::clone(&s.history))
+    };
+    if let Some(history) = history_opt {
+        crate::util::save_history(&history);
     }
 }
 

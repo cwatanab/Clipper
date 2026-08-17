@@ -1,28 +1,12 @@
 use std::sync::atomic::Ordering;
 
 use crate::state::{
-    LAST_KEY_TIME, LAST_KEY_VK, MAIN_HWND, MOUSE_HOOK, SafeHHOOK, SafeHWND, WM_FIFO_LIFO_PASTE,
-    WM_HIDE_WINDOW, WM_TOGGLE_FIFO_LIFO, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET,
+    DOUBLE_TAP_MS, FIFO_LIFO_ACTIVE, FIFO_LIFO_HAS_ITEMS, HISTORY_KEY_KIND, KeyTriggerKind,
+    LAST_KEY_TIME, LAST_KEY_VK, MAIN_HWND, MOUSE_HOOK, SNIPPET_KEY_KIND, SafeHHOOK, SafeHWND,
+    WM_FIFO_LIFO_PASTE, WM_HIDE_WINDOW, WM_TOGGLE_FIFO_LIFO, WM_TRIGGER_HISTORY,
+    WM_TRIGGER_SNIPPET,
 };
 use crate::win32;
-
-#[cfg(target_os = "windows")]
-fn matches_key(vk: u16, key_name: &str) -> bool {
-    match key_name.to_lowercase().as_str() {
-        "shift" => vk == win32::VK_SHIFT || vk == win32::VK_LSHIFT || vk == win32::VK_RSHIFT,
-        "lshift" | "left_shift" => vk == win32::VK_LSHIFT,
-        "rshift" | "right_shift" => vk == win32::VK_RSHIFT,
-        "ctrl" | "control" => {
-            vk == win32::VK_CONTROL || vk == win32::VK_LCONTROL || vk == win32::VK_RCONTROL
-        }
-        "lctrl" | "left_ctrl" | "lcontrol" | "left_control" => vk == win32::VK_LCONTROL,
-        "rctrl" | "right_ctrl" | "rcontrol" | "right_control" => vk == win32::VK_RCONTROL,
-        "alt" | "menu" => vk == win32::VK_MENU || vk == win32::VK_LMENU || vk == win32::VK_RMENU,
-        "lalt" | "left_alt" | "lmenu" | "left_menu" => vk == win32::VK_LMENU,
-        "ralt" | "right_alt" | "rmenu" | "right_menu" => vk == win32::VK_RMENU,
-        _ => false,
-    }
-}
 
 #[cfg(target_os = "windows")]
 pub unsafe extern "system" fn keyboard_hook_proc(
@@ -39,22 +23,15 @@ pub unsafe extern "system" fn keyboard_hook_proc(
             kbd.time
         };
 
-        let (snippet_key, history_key, double_tap_ms) = crate::state::CONFIG
-            .get()
-            .map(|c| {
-                (
-                    c.snippet_key.clone(),
-                    c.history_key.clone(),
-                    c.double_tap_ms,
-                )
-            })
-            .unwrap_or_else(|| ("left_shift".to_string(), "left_ctrl".to_string(), 500));
+        let snippet_kind = KeyTriggerKind::from_u8(SNIPPET_KEY_KIND.load(Ordering::Relaxed));
+        let history_kind = KeyTriggerKind::from_u8(HISTORY_KEY_KIND.load(Ordering::Relaxed));
+        let double_tap_ms = DOUBLE_TAP_MS.load(Ordering::Relaxed);
 
         if wparam == win32::WM_KEYUP as win32::WPARAM
             || wparam == win32::WM_SYSKEYUP as win32::WPARAM
         {
-            let is_snippet = matches_key(vk, &snippet_key);
-            let is_history = matches_key(vk, &history_key);
+            let is_snippet = snippet_kind.matches(vk);
+            let is_history = history_kind.matches(vk);
 
             if is_snippet || is_history {
                 let mapped_vk = if is_snippet { 1u32 } else { 2u32 };
@@ -109,13 +86,8 @@ pub unsafe extern "system" fn keyboard_hook_proc(
 
             // Ctrl + V が押され、且つ FIFO/LIFO モードが有効でキューが空でない場合
             if vk == 0x56 /* VK_V */ && ctrl_pressed {
-                let is_fifo_lifo_active = {
-                    let state_guard = crate::state::lock_state();
-                    state_guard.as_ref().map_or(false, |s| {
-                        s.fifo_lifo_mode != crate::state::FifoLifoMode::None
-                            && !s.fifo_lifo_queue.is_empty()
-                    })
-                };
+                let is_fifo_lifo_active =
+                    FIFO_LIFO_ACTIVE.load(Ordering::Acquire) && FIFO_LIFO_HAS_ITEMS.load(Ordering::Acquire);
 
                 if is_fifo_lifo_active && kbd.dw_extra_info != crate::state::CLIPPER_MAGIC_INFO {
                     if let Some(SafeHWND(main_hwnd)) = MAIN_HWND.get()
@@ -167,8 +139,8 @@ pub unsafe extern "system" fn keyboard_hook_proc(
                 }
             }
 
-            let is_snippet = matches_key(vk, &snippet_key);
-            let is_history = matches_key(vk, &history_key);
+            let is_snippet = snippet_kind.matches(vk);
+            let is_history = history_kind.matches(vk);
             if is_snippet || is_history {
                 crate::state::LAST_KEYDOWN_TIME.store(now_time, Ordering::Relaxed);
                 crate::state::OTHER_KEY_PRESSED.store(false, Ordering::Relaxed);

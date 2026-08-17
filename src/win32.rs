@@ -573,6 +573,7 @@ mod windows {
         pub fn GlobalLock(hMem: *mut c_void) -> *mut c_void;
         pub fn GlobalUnlock(hMem: *mut c_void) -> BOOL;
         pub fn GlobalFree(hMem: *mut c_void) -> *mut c_void;
+        pub fn GlobalSize(hMem: *mut c_void) -> usize;
     }
 
     #[link(name = "dwmapi")]
@@ -718,6 +719,7 @@ mod windows {
     #[link(name = "ole32")]
     unsafe extern "system" {
         pub fn CoInitializeEx(pvReserved: *mut c_void, dwCoInit: u32) -> i32;
+        pub fn CoUninitialize();
     }
 
     pub const COINIT_APARTMENTTHREADED: u32 = 0x2;
@@ -1055,6 +1057,9 @@ mod windows {
     pub unsafe fn GlobalFree(_h: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
         std::ptr::null_mut()
     }
+    pub unsafe fn GlobalSize(_h: *mut std::ffi::c_void) -> usize {
+        0
+    }
     pub unsafe fn BeginPaint(_hwnd: HWND, _lpPaint: *mut PAINTSTRUCT) -> usize {
         0
     }
@@ -1098,6 +1103,10 @@ mod windows {
     pub unsafe fn SetProcessDpiAwarenessContext(_value: *mut std::ffi::c_void) -> i32 {
         0
     }
+    pub unsafe fn CoInitializeEx(_pv_reserved: *mut std::ffi::c_void, _dw_co_init: u32) -> i32 {
+        0
+    }
+    pub unsafe fn CoUninitialize() {}
 }
 
 pub use windows::*;

@@ -134,6 +134,29 @@ pub fn move_listbox_selection(dir: i32) {
     }
 }
 
+pub fn navigate_parent_folder() {
+    let mut state_guard = lock_state();
+    if let Some(state) = &mut *state_guard {
+        let mut parts = util::split_path(&state.current_folder);
+        if parts.len() > 1 {
+            parts.pop();
+            state.current_folder = util::join_path(&parts);
+        } else {
+            state.current_folder.clear();
+        }
+    }
+    std::mem::drop(state_guard);
+
+    if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
+        unsafe {
+            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
+            win32::SetFocus(*hwnd_edit);
+        }
+    }
+    update_listbox_items();
+    update_search_cue_banner();
+}
+
 pub fn on_select() {
     if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
         let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
@@ -154,27 +177,7 @@ pub fn on_select() {
 
             if mode == Mode::Snippet {
                 if target_path == ".." {
-                    // Go up to parent folder
-                    let mut state_guard = lock_state();
-                    if let Some(state) = &mut *state_guard {
-                        let mut parts = util::split_path(&state.current_folder);
-                        if parts.len() > 1 {
-                            parts.pop();
-                            state.current_folder = util::join_path(&parts);
-                        } else {
-                            state.current_folder.clear();
-                        }
-                    }
-                    std::mem::drop(state_guard);
-
-                    if let Some(SafeHWND(hwnd_edit)) = EDIT_HWND.get() {
-                        unsafe {
-                            win32::SetWindowTextW(*hwnd_edit, EMPTY_WSTR.as_ptr());
-                            win32::SetFocus(*hwnd_edit);
-                        }
-                    }
-                    update_listbox_items();
-                    update_search_cue_banner();
+                    navigate_parent_folder();
                     return;
                 } else if target_path.starts_with("dir:") {
                     // Enter subfolder
@@ -671,20 +674,11 @@ pub fn hide_window() {
         }
     }
 
-    // Clear Migemo dictionary from memory
-    state::clear_migemo_dict();
-
     // Restore focus to the last active window
     restore_focus(last_active);
 
     if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };
-    }
-
-    // Trim the working set to free up physical memory immediately
-    unsafe {
-        let h_process = win32::GetCurrentProcess();
-        win32::SetProcessWorkingSetSize(h_process, !0, !0);
     }
 }
 
@@ -1130,6 +1124,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         if let Some(state) = &mut *state_guard {
             state.fifo_lifo_mode = state::FifoLifoMode::None;
             state.fifo_lifo_queue.clear();
+            state::sync_fifo_lifo_state(state);
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
@@ -1138,6 +1133,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
             state.fifo_lifo_mode = state::FifoLifoMode::Fifo;
+            state::sync_fifo_lifo_state(state);
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
@@ -1150,6 +1146,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
             state.fifo_lifo_mode = state::FifoLifoMode::Lifo;
+            state::sync_fifo_lifo_state(state);
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
@@ -1162,6 +1159,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         let mut state_guard = lock_state();
         if let Some(state) = &mut *state_guard {
             state.fifo_lifo_queue.clear();
+            state::sync_fifo_lifo_state(state);
         }
         std::mem::drop(state_guard);
         update_tray_tip_and_icon(hwnd);
@@ -1284,48 +1282,11 @@ fn get_icon_path(is_dark: bool) -> Option<String> {
 
     cache
         .get_or_init(|| {
-            let file_name = if is_dark {
-                "app_inverted.png"
+            if is_dark {
+                crate::util::get_icon_inverted_path()
             } else {
-                "app.png"
-            };
-            if let Ok(exe_path) = std::env::current_exe() {
-                let mut dir = exe_path.parent();
-                for _ in 0..4 {
-                    if let Some(d) = dir {
-                        let candidate = d.join("assets").join(file_name);
-                        if candidate.exists() {
-                            if let Ok(abs_path) = candidate.canonicalize() {
-                                let abs_path_str = abs_path.to_string_lossy().to_string();
-                                let clean_path = abs_path_str.trim_start_matches(r"\\?\");
-                                return Some(clean_path.replace('\\', "/"));
-                            }
-                        }
-                        dir = d.parent();
-                    } else {
-                        break;
-                    }
-                }
+                crate::util::get_icon_path()
             }
-            if let Ok(current) = std::env::current_dir() {
-                let mut dir = Some(current.as_path());
-                for _ in 0..4 {
-                    if let Some(d) = dir {
-                        let candidate = d.join("assets").join(file_name);
-                        if candidate.exists() {
-                            if let Ok(abs_path) = candidate.canonicalize() {
-                                let abs_path_str = abs_path.to_string_lossy().to_string();
-                                let clean_path = abs_path_str.trim_start_matches(r"\\?\");
-                                return Some(clean_path.replace('\\', "/"));
-                            }
-                        }
-                        dir = d.parent();
-                    } else {
-                        break;
-                    }
-                }
-            }
-            None
         })
         .clone()
 }

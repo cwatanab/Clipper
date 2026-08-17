@@ -40,17 +40,16 @@ pub fn is_dark_active() -> bool {
     }
 }
 
-pub fn is_dark_mode() -> bool {
-    #[cfg(target_os = "windows")]
+#[cfg(target_os = "windows")]
+pub fn read_registry_dword(hkey_root: win32::HKEY, subkey: &str, value_name: &str) -> Option<u32> {
     unsafe {
-        let subkey =
-            util::to_wstring("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
-        let valname = util::to_wstring("AppsUseLightTheme");
+        let subkey_w = util::to_wstring(subkey);
+        let valname_w = util::to_wstring(value_name);
         let mut hkey: win32::HKEY = std::ptr::null_mut();
 
         let status = win32::RegOpenKeyExW(
-            win32::HKEY_CURRENT_USER,
-            subkey.as_ptr(),
+            hkey_root,
+            subkey_w.as_ptr(),
             0,
             win32::KEY_READ,
             &mut hkey,
@@ -63,7 +62,7 @@ pub fn is_dark_mode() -> bool {
 
             let query_status = win32::RegQueryValueExW(
                 hkey,
-                valname.as_ptr(),
+                valname_w.as_ptr(),
                 std::ptr::null_mut(),
                 &mut type_val,
                 data_val.as_mut_ptr(),
@@ -73,53 +72,36 @@ pub fn is_dark_mode() -> bool {
             win32::RegCloseKey(hkey);
 
             if query_status == 0 && size_val == 4 {
-                let val = u32::from_le_bytes(data_val);
-                return val == 0; // 0 means Dark, 1 means Light
+                return Some(u32::from_le_bytes(data_val));
             }
         }
     }
-    false // Default to light mode
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn read_registry_dword(_hkey_root: win32::HKEY, _subkey: &str, _value_name: &str) -> Option<u32> {
+    None
+}
+
+const PERSONALIZE_SUBKEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+
+pub fn is_dark_mode() -> bool {
+    read_registry_dword(
+        win32::HKEY_CURRENT_USER,
+        PERSONALIZE_SUBKEY,
+        "AppsUseLightTheme",
+    )
+    .map_or(false, |val| val == 0) // 0 means Dark, 1 means Light
 }
 
 pub fn is_system_dark_mode() -> bool {
-    #[cfg(target_os = "windows")]
-    unsafe {
-        let subkey =
-            util::to_wstring("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize");
-        let valname = util::to_wstring("SystemUsesLightTheme");
-        let mut hkey: win32::HKEY = std::ptr::null_mut();
-
-        let status = win32::RegOpenKeyExW(
-            win32::HKEY_CURRENT_USER,
-            subkey.as_ptr(),
-            0,
-            win32::KEY_READ,
-            &mut hkey,
-        );
-
-        if status == 0 {
-            let mut type_val: u32 = 0;
-            let mut data_val: [u8; 4] = [0; 4];
-            let mut size_val: u32 = 4;
-
-            let query_status = win32::RegQueryValueExW(
-                hkey,
-                valname.as_ptr(),
-                std::ptr::null_mut(),
-                &mut type_val,
-                data_val.as_mut_ptr(),
-                &mut size_val,
-            );
-
-            win32::RegCloseKey(hkey);
-
-            if query_status == 0 && size_val == 4 {
-                let val = u32::from_le_bytes(data_val);
-                return val == 0; // 0 means Dark, 1 means Light
-            }
-        }
-    }
-    false // Default to light mode
+    read_registry_dword(
+        win32::HKEY_CURRENT_USER,
+        PERSONALIZE_SUBKEY,
+        "SystemUsesLightTheme",
+    )
+    .map_or(false, |val| val == 0) // 0 means Dark, 1 means Light
 }
 
 pub fn apply_to_window(hwnd: win32::HWND, dark: bool) {
@@ -155,5 +137,17 @@ pub fn apply_to_control(hwnd: win32::HWND, dark: bool) {
             util::wstr_explorer()
         };
         win32::SetWindowTheme(hwnd, theme.as_ptr(), std::ptr::null());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dark_mode_helpers() {
+        // Verify aliases match
+        assert_eq!(is_apps_dark(), is_dark_mode());
+        assert_eq!(is_system_dark(), is_system_dark_mode());
     }
 }

@@ -385,21 +385,23 @@ pub fn render_template(template_str: &str, clipboard_text: &str) -> String {
         env.add_filter(
             "datetimeformat",
             |value: String, fmt: Option<String>| -> Result<String, minijinja::Error> {
-                if value.len() < 19 {
+                let chars: Vec<char> = value.chars().collect();
+                if chars.len() < 19 {
                     return Ok(value);
                 }
-                let year = &value[0..4];
-                let month = &value[5..7];
-                let day = &value[8..10];
-                let hour = &value[11..13];
-                let minute = &value[14..16];
-                let second = &value[17..19];
+                let year: String = chars[0..4].iter().collect();
+                let month: String = chars[5..7].iter().collect();
+                let day: String = chars[8..10].iter().collect();
+                let hour: String = chars[11..13].iter().collect();
+                let minute: String = chars[14..16].iter().collect();
+                let second: String = chars[17..19].iter().collect();
+                let year_yy: String = chars[2..4].iter().collect();
 
                 let fmt_str = fmt.as_deref().unwrap_or("long");
                 let formatted = match fmt_str {
                     "short" => format!("{}/{}/{}", year, month, day),
                     "time" => format!("{}:{}:{}", hour, minute, second),
-                    "year" => year.to_string(),
+                    "year" => year,
                     _ => {
                         // Check if it's a format pattern like yyyyMMdd or standard strftime symbols
                         if fmt_str.contains('%')
@@ -415,24 +417,24 @@ pub fn render_template(template_str: &str, clipboard_text: &str) -> String {
                             || fmt_str.contains('S')
                         {
                             fmt_str
-                                .replace("%Y", year)
-                                .replace("yyyy", year)
-                                .replace("YYYY", year)
-                                .replace("YY", &year[2..4])
-                                .replace("yy", &year[2..4])
-                                .replace("%m", month)
-                                .replace("MM", month)
-                                .replace("%d", day)
-                                .replace("dd", day)
-                                .replace("DD", day)
-                                .replace("%H", hour)
-                                .replace("HH", hour)
-                                .replace("hh", hour)
-                                .replace("%M", minute)
-                                .replace("mm", minute)
-                                .replace("%S", second)
-                                .replace("ss", second)
-                                .replace("SS", second)
+                                .replace("%Y", &year)
+                                .replace("yyyy", &year)
+                                .replace("YYYY", &year)
+                                .replace("YY", &year_yy)
+                                .replace("yy", &year_yy)
+                                .replace("%m", &month)
+                                .replace("MM", &month)
+                                .replace("%d", &day)
+                                .replace("dd", &day)
+                                .replace("DD", &day)
+                                .replace("%H", &hour)
+                                .replace("HH", &hour)
+                                .replace("hh", &hour)
+                                .replace("%M", &minute)
+                                .replace("mm", &minute)
+                                .replace("%S", &second)
+                                .replace("ss", &second)
+                                .replace("SS", &second)
                         } else {
                             value
                         }
@@ -476,17 +478,20 @@ pub fn get_clipboard_text() -> Option<String> {
             win32::CloseClipboard();
             return None;
         }
+        let total_bytes = win32::GlobalSize(h_data);
+        if total_bytes < std::mem::size_of::<u16>() {
+            win32::CloseClipboard();
+            return None;
+        }
         let p_data = win32::GlobalLock(h_data) as *const u16;
         if p_data.is_null() {
             win32::CloseClipboard();
             return None;
         }
-        let mut len = 0;
-        while *p_data.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(p_data, len);
-        let text = String::from_utf16_lossy(slice);
+        let max_elements = total_bytes / std::mem::size_of::<u16>();
+        let slice = std::slice::from_raw_parts(p_data, max_elements);
+        let len = slice.iter().position(|&c| c == 0).unwrap_or(max_elements);
+        let text = String::from_utf16_lossy(&slice[..len]);
         win32::GlobalUnlock(h_data);
         win32::CloseClipboard();
         Some(text)
@@ -909,6 +914,54 @@ pub fn join_path(parts: &[String]) -> String {
         .join("/")
 }
 
+pub fn find_asset_path(file_name: &str) -> Option<String> {
+    if let Ok(exe_path) = std::env::current_exe() {
+        let mut dir = exe_path.parent();
+        for _ in 0..4 {
+            if let Some(d) = dir {
+                let candidate = d.join("assets").join(file_name);
+                if candidate.exists() {
+                    if let Ok(abs_path) = candidate.canonicalize() {
+                        let abs_path_str = abs_path.to_string_lossy().to_string();
+                        let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                        return Some(clean_path.replace('\\', "/"));
+                    }
+                }
+                dir = d.parent();
+            } else {
+                break;
+            }
+        }
+    }
+    if let Ok(current) = std::env::current_dir() {
+        let mut dir = Some(current.as_path());
+        for _ in 0..4 {
+            if let Some(d) = dir {
+                let candidate = d.join("assets").join(file_name);
+                if candidate.exists() {
+                    if let Ok(abs_path) = candidate.canonicalize() {
+                        let abs_path_str = abs_path.to_string_lossy().to_string();
+                        let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                        return Some(clean_path.replace('\\', "/"));
+                    }
+                }
+                dir = d.parent();
+            } else {
+                break;
+            }
+        }
+    }
+    None
+}
+
+pub fn get_icon_path() -> Option<String> {
+    find_asset_path("app.png")
+}
+
+pub fn get_icon_inverted_path() -> Option<String> {
+    find_asset_path("app_inverted.png")
+}
+
 use std::sync::OnceLock;
 
 macro_rules! define_wstring_cache {
@@ -979,6 +1032,17 @@ mod tests {
         let custom_date_part = parts[2].strip_prefix("CustomDate: ").unwrap();
         assert_eq!(custom_date_part.len(), 8);
         assert!(custom_date_part.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn test_datetimeformat_multibyte() {
+        let template = "{{ '２０２６年０８月１７日 ０９時０６分５８秒'|datetimeformat('YYYY-MM-DD') }}";
+        let rendered = render_template(template, "");
+        assert_eq!(rendered, "２０２６-０８-１７");
+
+        let short_multibyte = "{{ 'こんにちは'|datetimeformat('YYYY-MM-DD') }}";
+        let rendered_short = render_template(short_multibyte, "");
+        assert_eq!(rendered_short, "こんにちは");
     }
 
     #[test]

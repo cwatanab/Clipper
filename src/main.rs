@@ -30,6 +30,25 @@ fn get_shortcut_index(wparam: usize) -> Option<usize> {
     }
 }
 
+struct ComGuard;
+
+impl ComGuard {
+    fn new() -> Self {
+        unsafe {
+            win32::CoInitializeEx(std::ptr::null_mut(), win32::COINIT_APARTMENTTHREADED);
+        }
+        ComGuard
+    }
+}
+
+impl Drop for ComGuard {
+    fn drop(&mut self) {
+        unsafe {
+            win32::CoUninitialize();
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set Per-Monitor DPI Aware V2 context
     unsafe {
@@ -39,6 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load();
     state::SAVE_HISTORY_TO_FILE.store(config.save_history, std::sync::atomic::Ordering::Relaxed);
     state::SHOW_TABS.store(config.show_tabs, std::sync::atomic::Ordering::Relaxed);
+    state::update_hook_config(&config);
     let _ = state::CONFIG.set(config);
 
     state::init_history_saver();
@@ -49,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui::register_app_id();
 
     // Initialize COM for MSAA (IAccessible) caret position detection
-    unsafe { win32::CoInitializeEx(std::ptr::null_mut(), win32::COINIT_APARTMENTTHREADED) };
+    let _com_guard = ComGuard::new();
 
     let _mutex_handle;
     {
@@ -84,6 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app_state.last_clipboard_value = text;
     }
 
+    state::sync_fifo_lifo_state(&app_state);
     *lock_state() = Some(app_state);
 
     unsafe {

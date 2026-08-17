@@ -384,19 +384,7 @@ pub unsafe extern "system" fn edit_subclass_proc(
                         })
                     };
                     if has_parent {
-                        let mut state_guard = lock_state();
-                        if let Some(state) = &mut *state_guard {
-                            let mut parts = util::split_path(&state.current_folder);
-                            if parts.len() > 1 {
-                                parts.pop();
-                                state.current_folder = util::join_path(&parts);
-                            } else {
-                                state.current_folder.clear();
-                            }
-                        }
-                        std::mem::drop(state_guard);
-                        ui::update_listbox_items();
-                        ui::update_search_cue_banner();
+                        ui::navigate_parent_folder();
                         return 0;
                     }
                 }
@@ -425,19 +413,7 @@ pub unsafe extern "system" fn edit_subclass_proc(
 
                     if is_snippet_mode && !target_path.is_empty() {
                         if target_path == ".." {
-                            let mut state_guard = lock_state();
-                            if let Some(state) = &mut *state_guard {
-                                let mut parts = util::split_path(&state.current_folder);
-                                if parts.len() > 1 {
-                                    parts.pop();
-                                    state.current_folder = util::join_path(&parts);
-                                } else {
-                                    state.current_folder.clear();
-                                }
-                            }
-                            std::mem::drop(state_guard);
-                            ui::update_listbox_items();
-                            ui::update_search_cue_banner();
+                            ui::navigate_parent_folder();
                             return 0;
                         } else if target_path.starts_with("dir:") {
                             let folder = target_path["dir:".len()..].to_string();
@@ -497,21 +473,10 @@ pub unsafe extern "system" fn edit_subclass_proc(
                         let state_guard = lock_state();
                         state_guard
                             .as_ref()
-                            .is_some_and(|s| !s.current_folder.is_empty())
+                            .is_some_and(|s| s.mode == Mode::Snippet && !s.current_folder.is_empty())
                     };
                     if has_parent {
-                        let mut state_guard = lock_state();
-                        if let Some(state) = &mut *state_guard {
-                            let mut parts = util::split_path(&state.current_folder);
-                            if parts.len() > 1 {
-                                parts.pop();
-                                state.current_folder = util::join_path(&parts);
-                            } else {
-                                state.current_folder.clear();
-                            }
-                        }
-                        std::mem::drop(state_guard);
-                        ui::update_listbox_items();
+                        ui::navigate_parent_folder();
                         return 0;
                     }
                 }
@@ -1766,11 +1731,13 @@ pub unsafe extern "system" fn window_proc(
             let text_to_paste = {
                 let mut state_guard = lock_state();
                 if let Some(state) = &mut *state_guard {
-                    match state.fifo_lifo_mode {
+                    let item = match state.fifo_lifo_mode {
                         FifoLifoMode::Fifo => state.fifo_lifo_queue.pop_front(),
                         FifoLifoMode::Lifo => state.fifo_lifo_queue.pop_back(),
                         _ => None,
-                    }
+                    };
+                    state::sync_fifo_lifo_state(state);
+                    item
                 } else {
                     None
                 }
@@ -1807,6 +1774,7 @@ pub unsafe extern "system" fn window_proc(
                     let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
                         state.fifo_lifo_mode = FifoLifoMode::None;
+                        state::sync_fifo_lifo_state(state);
                     }
                     std::mem::drop(state_guard);
                     ui::update_tray_tip_and_icon(hwnd);
@@ -1838,6 +1806,7 @@ pub unsafe extern "system" fn window_proc(
                     if state.fifo_lifo_mode == FifoLifoMode::None {
                         state.fifo_lifo_queue.clear();
                     }
+                    state::sync_fifo_lifo_state(state);
                     (old, state.fifo_lifo_mode)
                 } else {
                     (FifoLifoMode::None, FifoLifoMode::None)
@@ -1897,6 +1866,7 @@ pub unsafe extern "system" fn window_proc(
                                     updated = true;
                                 }
                             }
+                            state::sync_fifo_lifo_state(state);
                             (state.fifo_lifo_mode, updated)
                         } else {
                             (FifoLifoMode::None, false)
@@ -1997,6 +1967,8 @@ pub unsafe extern "system" fn window_proc(
             update_theme_resources_with_scale(hwnd, is_dark, scale);
         }
         win32::WM_DESTROY => {
+            state::flush_history_saver();
+
             // Clean up font objects (Mutex-backed fonts use .take() to clear)
             if let Some(SafeHFONT(font)) =
                 FONT_EDIT.lock().unwrap_or_else(|e| e.into_inner()).take()
