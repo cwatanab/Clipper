@@ -832,19 +832,7 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
 
     let menu = unsafe { win32::CreatePopupMenu() };
     unsafe {
-        // Utility actions
-        win32::AppendMenuW(
-            menu,
-            0,
-            1004,
-            util::to_wstring("設定ファイルを開く").as_ptr(),
-        );
-        win32::AppendMenuW(
-            menu,
-            0,
-            1005,
-            util::to_wstring("スニペットフォルダを開く").as_ptr(),
-        );
+        // 1. スニペット / 履歴操作
         win32::AppendMenuW(
             menu,
             0,
@@ -854,40 +842,14 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
         win32::AppendMenuW(
             menu,
             0,
-            1007,
-            util::to_wstring("このアプリについて").as_ptr(),
+            1005,
+            util::to_wstring("スニペットフォルダを開く").as_ptr(),
         );
-
-        // Checkbox item for saving history to file
-        let is_save = state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed);
-        let check_flag = if is_save {
-            win32::MF_CHECKED
-        } else {
-            win32::MF_UNCHECKED
-        };
-        win32::AppendMenuW(
-            menu,
-            check_flag,
-            1008,
-            util::to_wstring("履歴をファイルに保存する").as_ptr(),
-        );
-
-        let is_show_tabs = state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
-        let check_tabs_flag = if is_show_tabs {
-            win32::MF_CHECKED
-        } else {
-            win32::MF_UNCHECKED
-        };
-        win32::AppendMenuW(
-            menu,
-            check_tabs_flag,
-            1014,
-            util::to_wstring("タブを表示する").as_ptr(),
-        );
-
         win32::AppendMenuW(menu, 0, 1009, util::to_wstring("履歴をクリア").as_ptr());
 
-        // FIFO / LIFO モードのメニュー項目
+        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
+
+        // 2. FIFO / LIFO モード
         let current_mode = {
             let state_guard = lock_state();
             state_guard
@@ -902,8 +864,6 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                 .map(|s| s.fifo_lifo_queue.len())
                 .unwrap_or(0)
         };
-
-        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
 
         let check_none = if current_mode == state::FifoLifoMode::None {
             win32::MF_CHECKED
@@ -945,9 +905,55 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             win32::AppendMenuW(menu, 0, 1013, util::to_wstring("キューをクリア").as_ptr());
         }
 
-        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null());
+        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
 
-        // Exit
+        // 3. 設定 / トグル項目
+        let is_show_tabs = state::SHOW_TABS.load(std::sync::atomic::Ordering::Relaxed);
+        let check_tabs_flag = if is_show_tabs {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
+        win32::AppendMenuW(
+            menu,
+            check_tabs_flag,
+            1014,
+            util::to_wstring("タブを表示する").as_ptr(),
+        );
+
+        let is_save = state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed);
+        let check_save_flag = if is_save {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
+        win32::AppendMenuW(
+            menu,
+            check_save_flag,
+            1008,
+            util::to_wstring("履歴をファイルに保存する").as_ptr(),
+        );
+
+        win32::AppendMenuW(
+            menu,
+            0,
+            1004,
+            util::to_wstring("設定ファイルを開く").as_ptr(),
+        );
+
+        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
+
+        // 4. アプリ情報
+        win32::AppendMenuW(
+            menu,
+            0,
+            1007,
+            util::to_wstring("このアプリについて").as_ptr(),
+        );
+
+        win32::AppendMenuW(menu, 0x0800, 0, std::ptr::null()); // Separator
+
+        // 5. 終了
         win32::AppendMenuW(menu, 0, 1003, util::to_wstring("終了").as_ptr());
         win32::SetForegroundWindow(hwnd);
     };
