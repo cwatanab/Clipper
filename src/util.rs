@@ -5,11 +5,7 @@ use std::path::PathBuf;
 use crate::win32;
 
 pub fn to_wstring(s: &str) -> Vec<u16> {
-    use std::os::windows::ffi::OsStrExt;
-    std::ffi::OsStr::new(s)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
+    s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 pub fn create_ui_font(name: &str, size: i32, weight: i32) -> win32::HFONT {
@@ -254,7 +250,10 @@ pub fn load_history() -> VecDeque<String> {
     VecDeque::new()
 }
 
+static SAVE_HISTORY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn save_history(history: &VecDeque<String>) {
+    let _guard = SAVE_HISTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let app_dir = get_app_dir();
     let history_dat = app_dir.join("history.dat");
     if let Ok(content) = serde_json::to_vec(history)
@@ -267,6 +266,7 @@ pub fn save_history(history: &VecDeque<String>) {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 struct SYSTEMTIME {
     w_year: u16,
     w_month: u16,
@@ -654,13 +654,12 @@ pub fn url_decode(s: &str) -> String {
     let mut chars = s.as_bytes().iter().copied();
     while let Some(b) = chars.next() {
         if b == b'%' {
-            if let (Some(h1), Some(h2)) = (chars.next(), chars.next()) {
-                if let Ok(hex_str) = std::str::from_utf8(&[h1, h2]) {
-                    if let Ok(val) = u8::from_str_radix(hex_str, 16) {
-                        bytes.push(val);
-                        continue;
-                    }
-                }
+            if let (Some(h1), Some(h2)) = (chars.next(), chars.next())
+                && let Ok(hex_str) = std::str::from_utf8(&[h1, h2])
+                && let Ok(val) = u8::from_str_radix(hex_str, 16)
+            {
+                bytes.push(val);
+                continue;
             }
             bytes.push(b'%');
         } else if b == b'+' {
@@ -753,32 +752,30 @@ pub fn unicode_unescape(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i] == '\\' && i + 1 < chars.len() {
-            if chars[i + 1] == 'u' {
-                if i + 2 < chars.len() && chars[i + 2] == '{' {
-                    let mut j = i + 3;
-                    while j < chars.len() && chars[j] != '}' {
-                        j += 1;
+        if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1] == 'u' {
+            if i + 2 < chars.len() && chars[i + 2] == '{' {
+                let mut j = i + 3;
+                while j < chars.len() && chars[j] != '}' {
+                    j += 1;
+                }
+                if j < chars.len() {
+                    let hex_str: String = chars[i + 3..j].iter().collect();
+                    if let Ok(val) = u32::from_str_radix(&hex_str, 16)
+                        && let Some(c) = char::from_u32(val)
+                    {
+                        result.push(c);
+                        i = j + 1;
+                        continue;
                     }
-                    if j < chars.len() {
-                        let hex_str: String = chars[i + 3..j].iter().collect();
-                        if let Ok(val) = u32::from_str_radix(&hex_str, 16) {
-                            if let Some(c) = char::from_u32(val) {
-                                result.push(c);
-                                i = j + 1;
-                                continue;
-                            }
-                        }
-                    }
-                } else if i + 5 < chars.len() {
-                    let hex_str: String = chars[i + 2..=i + 5].iter().collect();
-                    if let Ok(val) = u32::from_str_radix(&hex_str, 16) {
-                        if let Some(c) = char::from_u32(val) {
-                            result.push(c);
-                            i += 6;
-                            continue;
-                        }
-                    }
+                }
+            } else if i + 5 < chars.len() {
+                let hex_str: String = chars[i + 2..=i + 5].iter().collect();
+                if let Ok(val) = u32::from_str_radix(&hex_str, 16)
+                    && let Some(c) = char::from_u32(val)
+                {
+                    result.push(c);
+                    i += 6;
+                    continue;
                 }
             }
         }
@@ -831,12 +828,12 @@ pub fn html_unescape(s: &str) -> String {
                 } else {
                     num_str.parse::<u32>().ok()
                 };
-                if let Some(val) = val {
-                    if let Some(c) = char::from_u32(val) {
-                        result.push(c);
-                        i = j + 1;
-                        continue;
-                    }
+                if let Some(val) = val
+                    && let Some(c) = char::from_u32(val)
+                {
+                    result.push(c);
+                    i = j + 1;
+                    continue;
                 }
             }
         }
@@ -884,19 +881,15 @@ pub fn to_nfc(s: &str) -> String {
 pub fn split_path(path: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
-    let chars: Vec<char> = path.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1] == '/' {
+    let mut chars = path.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek() == Some(&'/') {
+            chars.next();
             current.push('/');
-            i += 2;
-        } else if chars[i] == '/' {
-            parts.push(current.clone());
-            current.clear();
-            i += 1;
+        } else if c == '/' {
+            parts.push(std::mem::take(&mut current));
         } else {
-            current.push(chars[i]);
-            i += 1;
+            current.push(c);
         }
     }
     parts.push(current);
@@ -917,12 +910,12 @@ pub fn find_asset_path(file_name: &str) -> Option<String> {
         for _ in 0..4 {
             if let Some(d) = dir {
                 let candidate = d.join("assets").join(file_name);
-                if candidate.exists() {
-                    if let Ok(abs_path) = candidate.canonicalize() {
-                        let abs_path_str = abs_path.to_string_lossy().to_string();
-                        let clean_path = abs_path_str.trim_start_matches(r"\\?\");
-                        return Some(clean_path.replace('\\', "/"));
-                    }
+                if candidate.exists()
+                    && let Ok(abs_path) = candidate.canonicalize()
+                {
+                    let abs_path_str = abs_path.to_string_lossy().to_string();
+                    let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                    return Some(clean_path.replace('\\', "/"));
                 }
                 dir = d.parent();
             } else {
@@ -935,12 +928,12 @@ pub fn find_asset_path(file_name: &str) -> Option<String> {
         for _ in 0..4 {
             if let Some(d) = dir {
                 let candidate = d.join("assets").join(file_name);
-                if candidate.exists() {
-                    if let Ok(abs_path) = candidate.canonicalize() {
-                        let abs_path_str = abs_path.to_string_lossy().to_string();
-                        let clean_path = abs_path_str.trim_start_matches(r"\\?\");
-                        return Some(clean_path.replace('\\', "/"));
-                    }
+                if candidate.exists()
+                    && let Ok(abs_path) = candidate.canonicalize()
+                {
+                    let abs_path_str = abs_path.to_string_lossy().to_string();
+                    let clean_path = abs_path_str.trim_start_matches(r"\\?\");
+                    return Some(clean_path.replace('\\', "/"));
                 }
                 dir = d.parent();
             } else {

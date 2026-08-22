@@ -91,8 +91,7 @@ pub fn is_dark_mode() -> bool {
         win32::HKEY_CURRENT_USER,
         PERSONALIZE_SUBKEY,
         "AppsUseLightTheme",
-    )
-    .map_or(false, |val| val == 0) // 0 means Dark, 1 means Light
+    ) == Some(0) // 0 means Dark, 1 means Light
 }
 
 pub fn is_system_dark_mode() -> bool {
@@ -100,8 +99,7 @@ pub fn is_system_dark_mode() -> bool {
         win32::HKEY_CURRENT_USER,
         PERSONALIZE_SUBKEY,
         "SystemUsesLightTheme",
-    )
-    .map_or(false, |val| val == 0) // 0 means Dark, 1 means Light
+    ) == Some(0) // 0 means Dark, 1 means Light
 }
 
 pub fn apply_to_window(hwnd: win32::HWND, dark: bool) {

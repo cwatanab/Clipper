@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-22
+
+### Fixed
+- **カーソル移動・スクロール時のチラつき（フリッカー）の完全解消**:
+  - カーソルキー移動時にメインウィンドウ全体を背景消去付きで再描画していた不要処理を削除し、検索バーやタブバーの点滅を防止しました。
+  - スクロール時のビットシフト描画によるショートカットキー番号の表示ズレ・チラつきを抑止するため、`WM_SETREDRAW` による再描画抑制を導入しました。
+  - `WM_DRAWITEM` 内にメモリDCを用いたダブルバッファリング（`BitBlt` 一括転送）を導入し、完全フリッカーフリー描画を実現しました。
+  - メインウィンドウに `WS_CLIPCHILDREN` スタイルを適用し、親ウィンドウの背景描画による子コントロール（リストボックス・検索欄）の上書きを防止しました。
+  - 選択アイテム描画前に行全体領域をリスト背景ブラシで初期化し、背景消去なし（`bErase = 0`）でも描画ゴミが残らないよう自己完結化しました。
+- **ウィンドウ非表示時のメモリトリム（Working Set 削減）の復元**:
+  - ウィンドウを閉じる処理（`hide_window`）の中で `SetProcessWorkingSetSize(handle, !0, !0)` を実行するようにし、バックグラウンド待機時のメモリ使用量を約 580 KB の最小状態に維持するようにしました。
+
 ## [0.3.0] - 2026-08-17
 
 ### Added
@@ -96,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.3.1]: https://github.com/cwatanab/Clipper/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/cwatanab/Clipper/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwatanab/Clipper/compare/v0.1.12...v0.2.0
 [0.1.12]: https://github.com/cwatanab/Clipper/compare/v0.1.11...v0.1.12

@@ -127,7 +127,18 @@ impl KeyTriggerKind {
 
     #[inline(always)]
     pub fn from_u8(val: u8) -> Self {
-        if val <= 9 { unsafe { std::mem::transmute(val) } } else { KeyTriggerKind::None }
+        match val {
+            1 => KeyTriggerKind::Shift,
+            2 => KeyTriggerKind::LShift,
+            3 => KeyTriggerKind::RShift,
+            4 => KeyTriggerKind::Ctrl,
+            5 => KeyTriggerKind::LCtrl,
+            6 => KeyTriggerKind::RCtrl,
+            7 => KeyTriggerKind::Alt,
+            8 => KeyTriggerKind::LAlt,
+            9 => KeyTriggerKind::RAlt,
+            _ => KeyTriggerKind::None,
+        }
     }
 }
 
@@ -248,7 +259,11 @@ pub fn flush_history_saver() {
         state_guard.as_ref().map(|s| Arc::clone(&s.history))
     };
     if let Some(history) = history_opt {
-        crate::util::save_history(&history);
+        if let Some(sender) = HISTORY_SAVE_SENDER.get() {
+            let _ = sender.send(history);
+        } else {
+            crate::util::save_history(&history);
+        }
     }
 }
 

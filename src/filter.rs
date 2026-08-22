@@ -57,16 +57,7 @@ fn get_compiled_regex(query_text: &str, dict_opt: Option<&CompactDictionary>) ->
     if check_hira {
         regex_parts.push(regex::escape(&hiragana));
 
-        let katakana: String = hiragana
-            .chars()
-            .map(|c| {
-                if ('ぁ'..='ん').contains(&c) {
-                    char::from_u32(c as u32 + 0x60).unwrap_or(c)
-                } else {
-                    c
-                }
-            })
-            .collect();
+        let katakana = crate::util::to_katakana(&hiragana);
         if !katakana.is_empty() && katakana != hiragana {
             regex_parts.push(regex::escape(&katakana));
         }
@@ -138,7 +129,7 @@ pub fn filter_items(
 
                 let sort_snippets = crate::state::CONFIG
                     .get()
-                    .map_or(false, |c| c.sort_snippets);
+                    .is_some_and(|c| c.sort_snippets);
 
                 // Add subdirectories (always sorted)
                 let mut folders: Vec<String> = folder_names.into_iter().collect();
@@ -229,7 +220,7 @@ pub fn filter_items(
 
             let sort_snippets = crate::state::CONFIG
                 .get()
-                .map_or(false, |c| c.sort_snippets);
+                .is_some_and(|c| c.sort_snippets);
 
             let mut folders_matches = Vec::new();
             for f in folder_names {
@@ -288,13 +279,11 @@ fn clean_history_item(s: &str) -> String {
         .iter()
         .any(|&b| b == b'\r' || b == b'\n' || b == b'\t');
 
-    if !has_control {
-        if s.chars().count() <= MAX_LEN {
-            let mut clean = String::with_capacity("[HIST] ".len() + s.len());
-            clean.push_str("[HIST] ");
-            clean.push_str(s);
-            return clean;
-        }
+    if !has_control && s.chars().take(MAX_LEN + 1).count() <= MAX_LEN {
+        let mut clean = String::with_capacity("[HIST] ".len() + s.len());
+        clean.push_str("[HIST] ");
+        clean.push_str(s);
+        return clean;
     }
 
     let mut clean = String::with_capacity("[HIST] ".len() + MAX_LEN + 3);

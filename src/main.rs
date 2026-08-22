@@ -135,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             win32::WS_EX_TOPMOST | win32::WS_EX_TOOLWINDOW,
             class_name.as_ptr(),
             util::to_wstring("Clipper").as_ptr(),
-            win32::WS_POPUP, // Borderless, we will draw the border in WM_PAINT
+            win32::WS_POPUP | win32::WS_CLIPCHILDREN, // Borderless with child clipping to prevent flicker
             0,
             0,
             initial_w,
@@ -202,28 +202,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ui::hide_window();
                     continue;
                 }
-            } else if is_visible && msg.message == win32::WM_SYSKEYDOWN {
-                if let Some(shortcut_idx) = get_shortcut_index(msg.wparam) {
-                    let (top_index, item_count) = {
-                        let top = if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                            win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize
-                        } else {
-                            0
-                        };
-                        let state_guard = lock_state();
-                        let count = state_guard.as_ref().map_or(0, |s| s.current_results.len());
-                        (top, count)
+            } else if is_visible && msg.message == win32::WM_SYSKEYDOWN
+                && let Some(shortcut_idx) = get_shortcut_index(msg.wparam)
+            {
+                let (top_index, item_count) = {
+                    let top = if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                        win32::SendMessageW(*hwnd_listbox, win32::LB_GETTOPINDEX, 0, 0) as usize
+                    } else {
+                        0
                     };
-                    let target_idx = top_index + shortcut_idx;
+                    let state_guard = lock_state();
+                    let count = state_guard.as_ref().map_or(0, |s| s.current_results.len());
+                    (top, count)
+                };
+                let target_idx = top_index + shortcut_idx;
 
-                    if target_idx < item_count {
-                        if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
-                            win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, target_idx, 0);
-                            ui::on_select();
-                        }
-                    }
-                    continue;
+                if target_idx < item_count
+                    && let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get()
+                {
+                    win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, target_idx, 0);
+                    ui::on_select();
                 }
+                continue;
             }
 
             if win32::IsDialogMessageW(hwnd, &msg) == 0 {

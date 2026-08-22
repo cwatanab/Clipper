@@ -402,8 +402,8 @@ pub unsafe extern "system" fn edit_subclass_proc(
                         if target_path == ".." {
                             ui::navigate_parent_folder();
                             return 0;
-                        } else if target_path.starts_with("dir:") {
-                            let folder = target_path["dir:".len()..].to_string();
+                        } else if let Some(stripped) = target_path.strip_prefix("dir:") {
+                            let folder = stripped.to_string();
                             let mut state_guard = lock_state();
                             if let Some(state) = &mut *state_guard {
                                 state.current_folder = folder;
@@ -430,7 +430,9 @@ pub unsafe extern "system" fn edit_subclass_proc(
                 // Page Up / Page Down
                 if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
                     unsafe {
+                        win32::SendMessageW(*hwnd_listbox, win32::WM_SETREDRAW, 0, 0);
                         win32::SendMessageW(*hwnd_listbox, win32::WM_KEYDOWN, wparam, lparam);
+                        win32::SendMessageW(*hwnd_listbox, win32::WM_SETREDRAW, 1, 0);
                     }
                     update_top_index();
                     unsafe {
@@ -529,6 +531,12 @@ pub unsafe extern "system" fn listbox_subclass_proc(
         return res;
     }
 
+    if is_scroll_msg {
+        unsafe {
+            win32::SendMessageW(hwnd, win32::WM_SETREDRAW, 0, 0);
+        }
+    }
+
     let old_proc_opt = state::OLD_LISTBOX_PROC.get();
     let res = unsafe {
         if let Some(SafeWndProc(old_proc)) = old_proc_opt {
@@ -540,7 +548,8 @@ pub unsafe extern "system" fn listbox_subclass_proc(
 
     if is_scroll_msg {
         unsafe {
-            win32::InvalidateRect(hwnd, std::ptr::null(), 1);
+            win32::SendMessageW(hwnd, win32::WM_SETREDRAW, 1, 0);
+            win32::InvalidateRect(hwnd, std::ptr::null(), 0);
         }
         update_top_index();
     }
@@ -633,7 +642,9 @@ pub unsafe extern "system" fn window_proc(
                     edit_subclass_proc as *const () as win32::LONG_PTR,
                 )
             };
-            let _ = OLD_EDIT_PROC.set(SafeWndProc(unsafe { std::mem::transmute(old_proc) }));
+            let _ = OLD_EDIT_PROC.set(SafeWndProc(unsafe {
+                std::mem::transmute::<win32::LONG_PTR, state::EditWndProc>(old_proc)
+            }));
             state::log_debug(&format!("Edit subclass applied. Old proc: {:?}", old_proc));
 
             let old_listbox_proc = unsafe {
@@ -644,7 +655,7 @@ pub unsafe extern "system" fn window_proc(
                 )
             };
             let _ = state::OLD_LISTBOX_PROC.set(SafeWndProc(unsafe {
-                std::mem::transmute(old_listbox_proc)
+                std::mem::transmute::<win32::LONG_PTR, state::EditWndProc>(old_listbox_proc)
             }));
             state::log_debug(&format!(
                 "ListBox subclass applied. Old proc: {:?}",
@@ -971,8 +982,24 @@ pub unsafe extern "system" fn window_proc(
                 return 1;
             }
 
-            let hdc = dis.hdc;
             let rc = dis.rc_item;
+            let item_w = rc.right - rc.left;
+            let item_h = rc.bottom - rc.top;
+            if item_w <= 0 || item_h <= 0 {
+                return 1;
+            }
+
+            // Create memory DC and compatible bitmap for flicker-free double buffering
+            let mem_dc = unsafe { win32::CreateCompatibleDC(dis.hdc) };
+            let mem_bm = unsafe { win32::CreateCompatibleBitmap(dis.hdc, item_w, item_h) };
+            let old_bm = unsafe { win32::SelectObject(mem_dc, mem_bm) };
+
+            // Map logical coordinates (rc.left, rc.top) to device (0, 0) in mem_dc
+            unsafe {
+                win32::SetWindowOrgEx(mem_dc, rc.left, rc.top, std::ptr::null_mut());
+            }
+
+            let hdc = mem_dc;
             let selected = (dis.item_state & win32::ODS_SELECTED) != 0;
 
             let (is_dark, _mode, is_folder) = {
@@ -1067,6 +1094,19 @@ pub unsafe extern "system" fn window_proc(
             };
 
             if selected {
+                let listbox_bg_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_ref()
+                {
+                    *brush
+                } else {
+                    std::ptr::null_mut()
+                };
+                if !listbox_bg_brush.is_null() {
+                    unsafe { win32::FillRect(hdc, &rc, listbox_bg_brush) };
+                }
+
                 let gap_x = (2.0 * scale) as i32;
                 let gap_y = (1.0 * scale) as i32;
                 // Pill-shaped rounded floating background: add 2px horizontal and 1px vertical gap (scaled)
@@ -1108,7 +1148,7 @@ pub unsafe extern "system" fn window_proc(
 
             let is_in_fifo_lifo_queue = {
                 let state_guard = lock_state();
-                state_guard.as_ref().map_or(false, |s| {
+                state_guard.as_ref().is_some_and(|s| {
                     s.mode == Mode::History
                         && (dis.item_id as usize) < s.current_full_paths.len()
                         && s.fifo_lifo_queue
@@ -1295,6 +1335,24 @@ pub unsafe extern "system" fn window_proc(
                     14,
                     chevron_color,
                 );
+            }
+
+            // Transfer buffer to screen DC in one atomic operation and cleanup
+            unsafe {
+                win32::BitBlt(
+                    dis.hdc,
+                    rc.left,
+                    rc.top,
+                    item_w,
+                    item_h,
+                    mem_dc,
+                    rc.left,
+                    rc.top,
+                    win32::SRCCOPY,
+                );
+                win32::SelectObject(mem_dc, old_bm);
+                win32::DeleteObject(mem_bm);
+                win32::DeleteDC(mem_dc);
             }
 
             return 1;
@@ -1812,7 +1870,7 @@ pub unsafe extern "system" fn window_proc(
         }
         win32::WM_CLIPBOARDUPDATE => {
             let is_excluded = if let Some(active_app) = util::get_active_process_name() {
-                state::CONFIG.get().map_or(false, |c| {
+                state::CONFIG.get().is_some_and(|c| {
                     c.exclude_apps
                         .iter()
                         .any(|app| app.eq_ignore_ascii_case(&active_app))
@@ -1834,11 +1892,11 @@ pub unsafe extern "system" fn window_proc(
                             is_new = true;
 
                             let mut updated = false;
-                            if state.fifo_lifo_mode != FifoLifoMode::None {
-                                if state.fifo_lifo_queue.back() != Some(&text) {
-                                    state.fifo_lifo_queue.push_back(text.clone());
-                                    updated = true;
-                                }
+                            if state.fifo_lifo_mode != FifoLifoMode::None
+                                && state.fifo_lifo_queue.back() != Some(&text)
+                            {
+                                state.fifo_lifo_queue.push_back(text.clone());
+                                updated = true;
                             }
                             state::sync_fifo_lifo_state(state);
                             (state.fifo_lifo_mode, updated)
@@ -1870,10 +1928,9 @@ pub unsafe extern "system" fn window_proc(
                     };
                     if let Some(history_arc) = history_to_save
                         && state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed)
+                        && let Some(sender) = state::HISTORY_SAVE_SENDER.get()
                     {
-                        if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
-                            let _ = sender.send(history_arc);
-                        }
+                        let _ = sender.send(history_arc);
                     }
                 }
 

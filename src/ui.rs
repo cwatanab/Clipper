@@ -65,6 +65,91 @@ pub fn calculate_window_dimensions(scale: f32) -> (i32, i32) {
 static FILTER_GEN: AtomicU32 = AtomicU32::new(0);
 static EMPTY_WSTR: &[u16] = &[0u16];
 
+struct FilterRequest {
+    generation: u32,
+    query_text: String,
+    mode: Mode,
+    current_folder: String,
+    snippets: std::sync::Arc<Vec<(String, String)>>,
+    history: std::sync::Arc<std::collections::VecDeque<String>>,
+}
+
+static FILTER_SENDER: OnceLock<std::sync::mpsc::Sender<FilterRequest>> = OnceLock::new();
+
+fn get_filter_sender() -> &'static std::sync::mpsc::Sender<FilterRequest> {
+    FILTER_SENDER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<FilterRequest>();
+        thread::spawn(move || {
+            while let Ok(mut req) = rx.recv() {
+                // Drain any immediately available newer requests in channel
+                while let Ok(newer_req) = rx.try_recv() {
+                    req = newer_req;
+                }
+
+                // Debounce delay to coalesce fast typing
+                thread::sleep(Duration::from_millis(35));
+
+                // Drain again in case a new request came in during the debounce sleep
+                while let Ok(newer_req) = rx.try_recv() {
+                    req = newer_req;
+                }
+
+                let generation = req.generation;
+                if FILTER_GEN.load(Ordering::SeqCst) != generation {
+                    continue; // Newer input arrived
+                }
+
+                // Create thread-local state copy for filtering without blocking main AppState mutex
+                let temp_state = crate::state::AppState {
+                    history: req.history,
+                    snippets: req.snippets,
+                    mode: req.mode,
+                    visible: true,
+                    current_results: Vec::new(),
+                    current_full_paths: Vec::new(),
+                    last_clipboard_value: String::new(),
+                    current_selection: String::new(),
+                    last_active_window: None,
+                    is_dark: false,
+                    current_folder: req.current_folder,
+                    top_index: 0,
+                    filter_generation: generation,
+                    fifo_lifo_mode: state::FifoLifoMode::None,
+                    fifo_lifo_queue: std::collections::VecDeque::new(),
+                };
+
+                let dict = state::get_migemo_dict();
+                let (display_items, full_paths) =
+                    filter::filter_items(&req.query_text, &temp_state, dict);
+
+                if FILTER_GEN.load(Ordering::SeqCst) != generation {
+                    continue; // Newer input arrived
+                }
+
+                let mut state_guard = lock_state();
+                if let Some(state) = &mut *state_guard
+                    && state.filter_generation == generation
+                {
+                    state.current_results = display_items;
+                    state.current_full_paths = full_paths;
+
+                    if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
+                        unsafe {
+                            win32::PostMessageW(
+                                *hwnd_main,
+                                crate::state::WM_FILTER_COMPLETE,
+                                generation as usize,
+                                0,
+                            );
+                        }
+                    }
+                }
+            }
+        });
+        tx
+    })
+}
+
 pub fn update_listbox_items() {
     if let (Some(SafeHWND(hwnd_edit)), Some(SafeHWND(_hwnd_listbox))) =
         (EDIT_HWND.get(), LISTBOX_HWND.get())
@@ -92,59 +177,14 @@ pub fn update_listbox_items() {
             }
         }
 
-        thread::spawn(move || {
-            // Debounce delay to let fast typing complete
-            thread::sleep(Duration::from_millis(50));
-
-            if FILTER_GEN.load(Ordering::SeqCst) != generation {
-                return; // Newer input arrived
-            }
-
-            // Create thread-local state copy for filtering without blocking main AppState mutex
-            let temp_state = crate::state::AppState {
-                history,
-                snippets,
-                mode,
-                visible: true,
-                current_results: Vec::new(),
-                current_full_paths: Vec::new(),
-                last_clipboard_value: String::new(),
-                current_selection: String::new(),
-                last_active_window: None,
-                is_dark: false,
-                current_folder,
-                top_index: 0,
-                filter_generation: generation,
-                fifo_lifo_mode: state::FifoLifoMode::None,
-                fifo_lifo_queue: std::collections::VecDeque::new(),
-            };
-
-            let dict = state::get_migemo_dict();
-            let (display_items, full_paths) =
-                filter::filter_items(&query_text, &temp_state, dict.as_deref());
-
-            if FILTER_GEN.load(Ordering::SeqCst) != generation {
-                return; // Newer input arrived
-            }
-
-            let mut state_guard = lock_state();
-            if let Some(state) = &mut *state_guard
-                && state.filter_generation == generation
-            {
-                state.current_results = display_items;
-                state.current_full_paths = full_paths;
-
-                if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
-                    unsafe {
-                        win32::PostMessageW(
-                            *hwnd_main,
-                            crate::state::WM_FILTER_COMPLETE,
-                            generation as usize,
-                            0,
-                        );
-                    }
-                }
-            }
+        let sender = get_filter_sender();
+        let _ = sender.send(FilterRequest {
+            generation,
+            query_text,
+            mode,
+            current_folder,
+            snippets,
+            history,
         });
     }
 }
@@ -162,15 +202,14 @@ pub fn move_listbox_selection(dir: i32) {
             } else {
                 (cur + dir_isize + count) % count
             };
-            unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, next as usize, 0) };
+            unsafe {
+                win32::SendMessageW(*hwnd_listbox, win32::WM_SETREDRAW, 0, 0);
+                win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, next as usize, 0);
+                win32::SendMessageW(*hwnd_listbox, win32::WM_SETREDRAW, 1, 0);
+            }
             crate::wndproc::update_top_index();
             unsafe {
-                win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
-            }
-            if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
-                unsafe {
-                    win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
-                }
+                win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 0);
             }
         }
     }
@@ -221,9 +260,9 @@ pub fn on_select() {
                 if target_path == ".." {
                     navigate_parent_folder();
                     return;
-                } else if target_path.starts_with("dir:") {
+                } else if let Some(stripped) = target_path.strip_prefix("dir:") {
                     // Enter subfolder
-                    let folder = target_path["dir:".len()..].to_string();
+                    let folder = stripped.to_string();
                     let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
                         state.current_folder = folder;
@@ -242,35 +281,15 @@ pub fn on_select() {
                 }
             }
 
-            let len = unsafe {
-                win32::SendMessageW(*hwnd_listbox, win32::LB_GETTEXTLEN, cur as usize, 0)
-            } as usize;
-            let mut buf = vec![0u16; len + 1];
-            unsafe {
-                win32::SendMessageW(
-                    *hwnd_listbox,
-                    win32::LB_GETTEXT,
-                    cur as usize,
-                    buf.as_mut_ptr() as win32::LPARAM,
-                )
-            };
-
-            let selected_text = String::from_utf16_lossy(&buf[..len]);
-            state::log_debug(&format!("on_select selected text: {}", selected_text));
-
-            let mut final_text = selected_text.clone();
+            let mut final_text = target_path.clone();
             {
-                let mut state_guard = lock_state();
-                if let Some(state) = &mut *state_guard {
-                    if state.mode == Mode::Snippet {
-                        if let Some((_, template)) =
-                            state.snippets.iter().find(|(name, _)| name == &target_path)
-                        {
-                            final_text = util::render_template(template, &state.current_selection);
-                        }
-                    } else {
-                        final_text = target_path.clone();
-                    }
+                let state_guard = lock_state();
+                if let Some(state) = &*state_guard
+                    && state.mode == Mode::Snippet
+                    && let Some((_, template)) =
+                        state.snippets.iter().find(|(name, _)| name == &target_path)
+                {
+                    final_text = util::render_template(template, &state.current_selection);
                 }
             }
 
@@ -305,96 +324,91 @@ pub fn delete_selected_items(delete_count: usize) {
 
             {
                 let mut state_guard = lock_state();
-                if let Some(state) = &mut *state_guard {
-                    if state.mode == Mode::History {
-                        let history = std::sync::Arc::make_mut(&mut state.history);
-                        let mut deleted_any = false;
+                if let Some(state) = &mut *state_guard
+                    && state.mode == Mode::History
+                {
+                    let history = std::sync::Arc::make_mut(&mut state.history);
+                    let mut deleted_any = false;
 
-                        // Disable redrawing to prevent flickering during batch deletion
+                    // Disable redrawing to prevent flickering during batch deletion
+                    unsafe {
+                        win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
+                    }
+
+                    for _ in 0..delete_count {
+                        let len = state.current_full_paths.len();
+                        if len == 0 {
+                            break;
+                        }
+                        // Clamp target index to current list size
+                        let idx = std::cmp::min(next_sel as usize, len - 1);
+                        let target_text = state.current_full_paths[idx].clone();
+
+                        // 1. Remove from state.history
+                        if let Some(pos) = history.iter().position(|x| x == &target_text) {
+                            history.remove(pos);
+                            deleted_any = true;
+                        }
+
+                        // 2. Remove from state active results
+                        if idx < state.current_results.len() {
+                            state.current_results.remove(idx);
+                        }
+                        if idx < state.current_full_paths.len() {
+                            state.current_full_paths.remove(idx);
+                        }
+
+                        // 3. Delete from the listbox directly (preserves scroll position)
                         unsafe {
-                            win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 0, 0);
+                            win32::SendMessageW(
+                                *hwnd_listbox,
+                                win32::LB_DELETESTRING,
+                                idx,
+                                0,
+                            );
                         }
 
-                        for _ in 0..delete_count {
-                            let len = state.current_full_paths.len();
-                            if len == 0 {
-                                break;
-                            }
-                            // Clamp target index to current list size
-                            let idx = std::cmp::min(next_sel as usize, len - 1);
-                            let target_text = state.current_full_paths[idx].clone();
-
-                            // 1. Remove from state.history
-                            if let Some(pos) = history.iter().position(|x| x == &target_text) {
-                                history.remove(pos);
-                                deleted_any = true;
-                            }
-
-                            // 2. Remove from state active results
-                            if idx < state.current_results.len() {
-                                state.current_results.remove(idx);
-                            }
-                            if idx < state.current_full_paths.len() {
-                                state.current_full_paths.remove(idx);
-                            }
-
-                            // 3. Delete from the listbox directly (preserves scroll position)
-                            unsafe {
-                                win32::SendMessageW(
-                                    *hwnd_listbox,
-                                    win32::LB_DELETESTRING,
-                                    idx,
-                                    0,
-                                );
-                            }
-
-                            // Determine next selection index
-                            let new_len = state.current_full_paths.len();
-                            if new_len > 0 {
-                                next_sel = std::cmp::min(idx as isize, (new_len - 1) as isize);
-                            } else {
-                                next_sel = win32::LB_ERR;
-                                break;
-                            }
+                        // Determine next selection index
+                        let new_len = state.current_full_paths.len();
+                        if new_len > 0 {
+                            next_sel = std::cmp::min(idx as isize, (new_len - 1) as isize);
+                        } else {
+                            next_sel = win32::LB_ERR;
+                            break;
                         }
+                    }
 
-                        // Apply new selection and re-enable redrawing
-                        unsafe {
-                            if next_sel != win32::LB_ERR {
-                                win32::SendMessageW(
-                                    *hwnd_listbox,
-                                    win32::LB_SETCURSEL,
-                                    next_sel as usize,
-                                    0,
-                                );
-                            }
-                            win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
+                    // Apply new selection and re-enable redrawing
+                    unsafe {
+                        if next_sel != win32::LB_ERR {
+                            win32::SendMessageW(
+                                *hwnd_listbox,
+                                win32::LB_SETCURSEL,
+                                next_sel as usize,
+                                0,
+                            );
                         }
+                        win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
+                    }
 
-                        if deleted_any
-                            && state::SAVE_HISTORY_TO_FILE
-                                .load(std::sync::atomic::Ordering::Relaxed)
-                        {
-                            history_to_save = Some(std::sync::Arc::clone(&state.history));
-                        }
+                    if deleted_any
+                        && state::SAVE_HISTORY_TO_FILE
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        history_to_save = Some(std::sync::Arc::clone(&state.history));
                     }
                 }
             }
 
-            if let Some(history_arc) = history_to_save {
-                if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
-                    let _ = sender.send(history_arc);
-                }
+            if let Some(history_arc) = history_to_save
+                && let Some(sender) = state::HISTORY_SAVE_SENDER.get()
+            {
+                let _ = sender.send(history_arc);
             }
 
             crate::wndproc::update_top_index();
             unsafe {
                 win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
-            }
-            if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
-                unsafe {
-                    win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
-                }
             }
         }
     }
@@ -524,30 +538,37 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
         }
 
         // 3. 対象モニターの DPI スケールを決定する
+        type GetDpiForMonitorFn = unsafe extern "system" fn(
+            *mut std::ffi::c_void,
+            i32,
+            *mut u32,
+            *mut u32,
+        ) -> i32;
+        static GET_DPI_FOR_MONITOR: OnceLock<Option<GetDpiForMonitorFn>> = OnceLock::new();
+
         let scale = unsafe {
             let mut dpi = 0u32;
             if !h_monitor.is_null() {
-                // Try GetDpiForMonitor from shcore.dll
-                type GetDpiForMonitorFn = unsafe extern "system" fn(
-                    *mut std::ffi::c_void,
-                    i32,
-                    *mut u32,
-                    *mut u32,
-                ) -> i32;
-
-                let mut shcore = win32::GetModuleHandleW(util::to_wstring("shcore.dll").as_ptr());
-                if shcore.is_null() {
-                    shcore = win32::LoadLibraryW(util::to_wstring("shcore.dll").as_ptr());
-                }
-                if !shcore.is_null() {
-                    let proc_addr = win32::GetProcAddress(shcore, b"GetDpiForMonitor\0".as_ptr());
-                    if !proc_addr.is_null() {
-                        let func: GetDpiForMonitorFn = std::mem::transmute(proc_addr);
-                        let mut dpi_x = 0u32;
-                        let mut dpi_y = 0u32;
-                        if func(h_monitor, 0 /* MDT_EFFECTIVE_DPI */, &mut dpi_x, &mut dpi_y) == 0 && dpi_x > 0 {
-                            dpi = dpi_x;
+                let get_dpi_fn = *GET_DPI_FOR_MONITOR.get_or_init(|| {
+                    let mut shcore = win32::GetModuleHandleW(util::to_wstring("shcore.dll").as_ptr());
+                    if shcore.is_null() {
+                        shcore = win32::LoadLibraryW(util::to_wstring("shcore.dll").as_ptr());
+                    }
+                    if !shcore.is_null() {
+                        let proc_addr = win32::GetProcAddress(shcore, c"GetDpiForMonitor".as_ptr() as *const u8);
+                        if !proc_addr.is_null() {
+                            let func: GetDpiForMonitorFn = std::mem::transmute(proc_addr);
+                            return Some(func);
                         }
+                    }
+                    None
+                });
+
+                if let Some(func) = get_dpi_fn {
+                    let mut dpi_x = 0u32;
+                    let mut dpi_y = 0u32;
+                    if func(h_monitor, 0 /* MDT_EFFECTIVE_DPI */, &mut dpi_x, &mut dpi_y) == 0 && dpi_x > 0 {
+                        dpi = dpi_x;
                     }
                 }
             }
@@ -606,7 +627,7 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
                 state.filter_generation = generation;
 
                 let dict = state::get_migemo_dict();
-                let (display_items, full_paths) = filter::filter_items("", state, dict.as_deref());
+                let (display_items, full_paths) = filter::filter_items("", state, dict);
                 state.current_results = display_items;
                 state.current_full_paths = full_paths;
                 Some(state.current_results.clone())
@@ -721,6 +742,12 @@ pub fn hide_window() {
 
     if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };
+    }
+
+    // Empty working set memory on Windows to trim background memory footprint (~580 KB)
+    unsafe {
+        let handle = win32::GetCurrentProcess();
+        win32::SetProcessWorkingSetSize(handle, !0, !0);
     }
 }
 
@@ -1091,10 +1118,10 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                     .as_ref()
                     .map(|s| std::sync::Arc::clone(&s.history))
             };
-            if let Some(history_arc) = history_to_save {
-                if let Some(sender) = state::HISTORY_SAVE_SENDER.get() {
-                    let _ = sender.send(history_arc);
-                }
+            if let Some(history_arc) = history_to_save
+                && let Some(sender) = state::HISTORY_SAVE_SENDER.get()
+            {
+                let _ = sender.send(history_arc);
             }
         }
     } else if cmd == 1014 {

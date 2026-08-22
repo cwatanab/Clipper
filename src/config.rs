@@ -2,18 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
+    #[default]
     Auto,
     Dark,
     Light,
-}
-
-impl Default for ThemeMode {
-    fn default() -> Self {
-        ThemeMode::Auto
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -149,10 +144,7 @@ impl Config {
         }
 
         match fs::read_to_string(&path) {
-            Ok(content) => match toml::from_str::<Config>(&content) {
-                Ok(config) => config,
-                Err(_) => Config::default(),
-            },
+            Ok(content) => toml::from_str::<Config>(&content).unwrap_or_default(),
             Err(_) => Config::default(),
         }
     }

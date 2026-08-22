@@ -2,17 +2,27 @@ fn find_rc_compiler() -> Option<String> {
     if std::env::var("RC").is_ok() {
         return None;
     }
-    let candidates = [
-        "llvm-rc",
-        "/usr/bin/llvm-rc-19",
-        "/usr/bin/llvm-rc-18",
-        "/usr/bin/llvm-rc-17",
-        "/usr/bin/llvm-rc",
-        "x86_64-w64-mingw32-windres",
-        "/usr/bin/x86_64-w64-mingw32-windres",
-        "windres",
-    ];
-    for &cand in &candidates {
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let candidates: &[&str] = if target_env == "gnu" {
+        &[
+            "x86_64-w64-mingw32-windres",
+            "/usr/bin/x86_64-w64-mingw32-windres",
+            "windres",
+            "llvm-rc",
+        ]
+    } else {
+        &[
+            "llvm-rc",
+            "/usr/bin/llvm-rc-19",
+            "/usr/bin/llvm-rc-18",
+            "/usr/bin/llvm-rc-17",
+            "/usr/bin/llvm-rc",
+            "x86_64-w64-mingw32-windres",
+            "/usr/bin/x86_64-w64-mingw32-windres",
+            "windres",
+        ]
+    };
+    for &cand in candidates {
         if std::path::Path::new(cand).is_file() {
             return Some(cand.to_string());
         }

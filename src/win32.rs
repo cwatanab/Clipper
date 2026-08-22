@@ -1,5 +1,5 @@
 #[cfg(target_os = "windows")]
-#[allow(non_snake_case, non_camel_case_types, dead_code)]
+#[allow(non_snake_case, non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
 mod windows {
     use std::ffi::c_void;
 
@@ -208,6 +208,7 @@ mod windows {
     pub const IDC_ARROW: *const u16 = 32512 as *const u16;
 
     pub const WS_POPUP: u32 = 0x80000000;
+    pub const WS_CLIPCHILDREN: u32 = 0x02000000;
     pub const WS_BORDER: u32 = 0x00800000;
     pub const WS_DLGFRAME: u32 = 0x00400000;
     pub const WS_CHILD: u32 = 0x40000000;
@@ -237,6 +238,8 @@ mod windows {
     pub const WM_ACTIVATE: u32 = 0x0006;
     pub const WM_PAINT: u32 = 0x000F;
     pub const WM_ERASEBKGND: u32 = 0x0014;
+    pub const WM_SETREDRAW: u32 = 0x000B;
+    pub const SRCCOPY: u32 = 0x00CC0020;
     pub const WM_SETTINGCHANGE: u32 = 0x001A;
     pub const WA_INACTIVE: usize = 0;
 
@@ -523,6 +526,21 @@ mod windows {
             c: i32,
             lpSize: *mut SIZE,
         ) -> BOOL;
+        pub fn CreateCompatibleDC(hdc: HDC) -> HDC;
+        pub fn CreateCompatibleBitmap(hdc: HDC, cx: i32, cy: i32) -> HGDIOBJ;
+        pub fn DeleteDC(hdc: HDC) -> BOOL;
+        pub fn SetWindowOrgEx(hdc: HDC, x: i32, y: i32, lppt: *mut POINT) -> BOOL;
+        pub fn BitBlt(
+            hdc: HDC,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            hdcSrc: HDC,
+            x1: i32,
+            y1: i32,
+            rop: u32,
+        ) -> BOOL;
     }
 
     #[link(name = "shell32")]
@@ -789,8 +807,9 @@ mod windows {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(non_snake_case, non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
 mod windows {
-    pub type HWND = usize;
+    pub type HWND = *mut std::ffi::c_void;
     pub type HBRUSH = *mut std::ffi::c_void;
     pub type BOOL = i32;
     pub type HFONT = *mut std::ffi::c_void;
