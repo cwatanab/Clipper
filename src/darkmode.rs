@@ -28,7 +28,7 @@ pub fn apply() {
 
 pub fn is_dark_active() -> bool {
     let mode = if let Some(config) = crate::state::CONFIG.get() {
-        config.theme_mode.clone()
+        config.theme_mode
     } else {
         crate::config::Config::load().theme_mode
     };

@@ -58,6 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::Config::load();
     state::SAVE_HISTORY_TO_FILE.store(config.save_history, std::sync::atomic::Ordering::Relaxed);
     state::SHOW_TABS.store(config.show_tabs, std::sync::atomic::Ordering::Relaxed);
+    state::SHOW_PREVIEW.store(config.show_preview, std::sync::atomic::Ordering::Relaxed);
     state::update_hook_config(&config);
     let _ = state::CONFIG.set(config);
 
@@ -152,6 +153,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let _ = MAIN_HWND.set(SafeHWND(hwnd));
 
+        let preview_class_name = util::to_wstring("ClipperPreviewWindowClass");
+        let preview_wnd_class = win32::WNDCLASSW {
+            style: win32::CS_HREDRAW | win32::CS_VREDRAW,
+            lpfnWndProc: Some(crate::wndproc::preview_window_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: hinstance,
+            hIcon: app_icon,
+            hCursor: win32::LoadCursorW(std::ptr::null_mut(), win32::IDC_ARROW),
+            hbrBackground: std::ptr::null_mut(),
+            lpszMenuName: std::ptr::null(),
+            lpszClassName: preview_class_name.as_ptr(),
+        };
+
+        win32::RegisterClassW(&preview_wnd_class);
+
+        let preview_hwnd = win32::CreateWindowExW(
+            win32::WS_EX_TOPMOST | win32::WS_EX_TOOLWINDOW | win32::WS_EX_NOACTIVATE,
+            preview_class_name.as_ptr(),
+            util::to_wstring("Clipper Preview").as_ptr(),
+            win32::WS_POPUP | win32::WS_CLIPCHILDREN,
+            0,
+            0,
+            340,
+            initial_h,
+            hwnd,
+            std::ptr::null_mut(),
+            hinstance,
+            std::ptr::null_mut(),
+        );
+
+        if !preview_hwnd.is_null() {
+            let _ = state::PREVIEW_HWND.set(SafeHWND(preview_hwnd));
+            let corner_preference = win32::DWMWCP_ROUND;
+            win32::DwmSetWindowAttribute(
+                preview_hwnd,
+                win32::DWMWA_WINDOW_CORNER_PREFERENCE,
+                &corner_preference as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+
         let mut nid: win32::NOTIFYICONDATAW = std::mem::zeroed();
         nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
         nid.hWnd = hwnd;
@@ -189,10 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while win32::GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             let is_key_msg =
                 msg.message == win32::WM_KEYDOWN || msg.message == win32::WM_SYSKEYDOWN;
-            let is_visible = is_key_msg && {
-                let state_guard = lock_state();
-                state_guard.as_ref().is_some_and(|s| s.visible)
-            };
+            let is_visible = is_key_msg && state::IS_VISIBLE.load(std::sync::atomic::Ordering::Relaxed);
 
             if is_visible && msg.message == win32::WM_KEYDOWN {
                 if msg.wparam == 13 {

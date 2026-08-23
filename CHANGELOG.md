@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-08-23
+
+### Added
+- **プレビューポップアップ機能 (`show_preview`, `preview_width`)**:
+  - 履歴やスニペットにカーソルを合わせたとき（キーボード移動およびマウスホバー時）、右側にプレビューウィンドウ（DWM角丸・ダブルバッファリング描画）をポップアップ表示する機能を追加。
+  - `WS_EX_NOACTIVATE` 制御により検索バーのフォーカスを奪わず、画面端での左右反転・マルチモニター・DPIスケール追従に対応。
+  - スニペットのプレビューではスニペット名をそのままタイトルに表示し、本文領域に等幅フォント（`Consolas`）を適用。
+  - タスクトレイメニューおよび `config.toml` での表示切り替え（`show_preview = true`）に対応。
+- **UIレイアウト・余白（パディング）の改善**:
+  - リストボックスのアクティブ行（青色選択ピル）において、ショートカットキー数字枠の左側に適切な余白（`10px`）を追加し、視認性を向上。
+  - スニペットフォルダ行の右端にある階層移動矢印（`>`）の右側にも適切な余白（`14px`）を追加し、DPIスケーリング追従化。
+
+### Changed
+- **描画ホットパス・イベントハンドリングの徹底最適化**:
+  - メッセージループ（`GetMessageW`）および低レベルマウスフック（`WH_MOUSE_LL`）での Mutex 同期取得を完全排除し、アトミック変数（`IS_VISIBLE`）によるロックフリー同期へ刷新。
+  - プレビュー描画（`WM_PAINT`）で事前 UTF-16 変換データを直接描画に渡すゼロアロケーション化。
+  - GDI Pen/Brush（`PEN_BORDER`, `PEN_SEL`, `BRUSH_EDIT` 等）の静的キャッシュ化により、描画毎フレームでの `CreatePen` / `DeleteObject` を完全撤廃。
+  - リスト描画（`WM_DRAWITEM`）およびクリップボード更新（`WM_CLIPBOARDUPDATE`）での多重 Mutex ロックを統合。
+  - マウス移動イベント（`WM_MOUSEMOVE`）での重複 `TrackMouseEvent` 呼び出しをアトミックフラグで間引き抑制。
+  - ペースト連打制御（`WM_FIFO_LIFO_PASTE`）における `thread::spawn` の野良スレッド乱立を廃止し、Win32 標準タイマー（`SetTimer` / `WM_TIMER`）へ移行。
+- **公式 MSVC ビルド環境の確立**:
+  - `x86_64-pc-windows-msvc` ターゲットを公式推奨ターゲットとして整備し、`BUILD.md` / `README.md` / `CLAUDE.md` にビルド手順を明記。
+
 ## [0.3.1] - 2026-08-22
 
 ### Fixed
@@ -108,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.3.2]: https://github.com/cwatanab/Clipper/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/cwatanab/Clipper/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/cwatanab/Clipper/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cwatanab/Clipper/compare/v0.1.12...v0.2.0

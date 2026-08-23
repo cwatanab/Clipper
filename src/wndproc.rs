@@ -7,7 +7,7 @@ use crate::state::Mode;
 use crate::state::{
     self, BRUSH_BG, BRUSH_BORDER, BRUSH_CTRL, BRUSH_EDIT, BRUSH_LISTBOX, BRUSH_SEL_BG, EDIT_HWND,
     FONT_EDIT, FONT_LISTBOX, FONT_LISTBOX_BOLD, FifoLifoMode, LISTBOX_HWND, MAIN_HWND,
-    OLD_EDIT_PROC, SafeHBRUSH, SafeHFONT, SafeHWND, SafeWndProc, WM_FIFO_LIFO_PASTE,
+    OLD_EDIT_PROC, SafeHBRUSH, SafeHFONT, SafeHPEN, SafeHWND, SafeWndProc, WM_FIFO_LIFO_PASTE,
     WM_HIDE_WINDOW, WM_TOGGLE_FIFO_LIFO, WM_TRIGGER_HISTORY, WM_TRIGGER_SNIPPET, lock_state,
 };
 use crate::ui;
@@ -174,6 +174,38 @@ pub fn update_theme_resources_with_scale(hwnd: win32::HWND, is_dark: bool, scale
             }
             let font_listbox_bold = util::create_ui_font(&config.font_name, font_listbox_size, 700);
             *font_guard = Some(SafeHFONT(font_listbox_bold));
+        }
+
+        // Recreate FONT_PREVIEW_MONO
+        {
+            let mut font_guard = state::FONT_PREVIEW_MONO
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHFONT(old_font)) = font_guard.take() {
+                win32::DeleteObject(old_font);
+            }
+            let font_mono = util::create_ui_font("Consolas", font_listbox_size, 400);
+            *font_guard = Some(SafeHFONT(font_mono));
+        }
+
+        // Recreate PEN_BORDER
+        {
+            let mut pen_guard = state::PEN_BORDER.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHPEN(old_pen)) = pen_guard.take() {
+                win32::DeleteObject(old_pen);
+            }
+            let pen_border = win32::CreatePen(win32::PS_SOLID, 1, colors.border_color);
+            *pen_guard = Some(SafeHPEN(pen_border));
+        }
+
+        // Recreate PEN_SEL
+        {
+            let mut pen_guard = state::PEN_SEL.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(SafeHPEN(old_pen)) = pen_guard.take() {
+                win32::DeleteObject(old_pen);
+            }
+            let pen_sel = win32::CreatePen(win32::PS_SOLID, 1, colors.sel_bg);
+            *pen_guard = Some(SafeHPEN(pen_sel));
         }
 
         // Recreate FONT_ICONS_16
@@ -438,6 +470,10 @@ pub unsafe extern "system" fn edit_subclass_proc(
                     unsafe {
                         win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 0);
                     }
+                    let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
+                    if cur != win32::LB_ERR {
+                        ui::update_preview(Some(cur as usize));
+                    }
                 }
                 return 0;
             }
@@ -513,6 +549,46 @@ pub unsafe extern "system" fn listbox_subclass_proc(
         return 0;
     }
 
+    if msg == win32::WM_MOUSEMOVE {
+        let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+        let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+        let m = crate::ui::UiMetrics::get(scale);
+        let top_index = unsafe { win32::SendMessageW(hwnd, win32::LB_GETTOPINDEX, 0, 0) } as usize;
+        let item_count = unsafe { win32::SendMessageW(hwnd, 0x018B /* LB_GETCOUNT */, 0, 0) } as usize;
+
+        if m.item_h > 0 {
+            let row = (y / m.item_h).max(0) as usize;
+            let hovered_idx = top_index + row;
+            if hovered_idx < item_count {
+                let prev_hover = crate::state::PREVIEW_HOVER_INDEX.swap(hovered_idx as isize, Ordering::Relaxed);
+                if prev_hover != hovered_idx as isize {
+                    ui::update_preview(Some(hovered_idx));
+                }
+            }
+        }
+
+        if !state::IS_LISTBOX_MOUSE_TRACKING.swap(true, Ordering::Relaxed) {
+            let mut tme = win32::TRACKMOUSEEVENT {
+                cbSize: std::mem::size_of::<win32::TRACKMOUSEEVENT>() as u32,
+                dwFlags: win32::TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            };
+            unsafe { win32::TrackMouseEvent(&mut tme) };
+        }
+    }
+
+    if msg == win32::WM_MOUSELEAVE {
+        state::IS_LISTBOX_MOUSE_TRACKING.store(false, Ordering::Relaxed);
+        crate::state::PREVIEW_HOVER_INDEX.store(-1, Ordering::Relaxed);
+        let cur = unsafe { win32::SendMessageW(hwnd, win32::LB_GETCURSEL, 0, 0) } as isize;
+        if cur != win32::LB_ERR {
+            ui::update_preview(Some(cur as usize));
+        } else {
+            ui::update_preview(None);
+        }
+    }
+
     if msg == win32::WM_LBUTTONUP {
         let old_proc_opt = state::OLD_LISTBOX_PROC.get();
         let res = unsafe {
@@ -555,6 +631,323 @@ pub unsafe extern "system" fn listbox_subclass_proc(
     }
 
     res
+}
+
+#[cfg(target_os = "windows")]
+pub unsafe extern "system" fn preview_window_proc(
+    hwnd: win32::HWND,
+    msg: u32,
+    wparam: win32::WPARAM,
+    lparam: win32::LPARAM,
+) -> win32::LRESULT {
+    match msg {
+        win32::WM_MOUSEACTIVATE => {
+            return win32::MA_NOACTIVATE;
+        }
+        win32::WM_ERASEBKGND => {
+            let hdc = wparam as win32::HDC;
+            let is_dark = {
+                let state_guard = lock_state();
+                state_guard.as_ref().is_some_and(|s| s.is_dark)
+            };
+            let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
+
+            let mut rc: win32::RECT = unsafe { std::mem::zeroed() };
+            unsafe { win32::GetClientRect(hwnd, &mut rc) };
+
+            let mut delete_bg = false;
+            let bg_brush = if let Some(SafeHBRUSH(brush)) =
+                BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            {
+                *brush
+            } else {
+                delete_bg = true;
+                unsafe { win32::CreateSolidBrush(colors.window_bg) }
+            };
+            unsafe { win32::FillRect(hdc, &rc, bg_brush) };
+            if delete_bg {
+                unsafe { win32::DeleteObject(bg_brush) };
+            }
+            return 1;
+        }
+        win32::WM_PAINT => {
+            let mut ps = unsafe { std::mem::zeroed::<win32::PAINTSTRUCT>() };
+            let hdc = unsafe { win32::BeginPaint(hwnd, &mut ps) };
+
+            let is_dark = {
+                let state_guard = lock_state();
+                state_guard.as_ref().is_some_and(|s| s.is_dark)
+            };
+            let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
+
+            let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+
+            let mut client_rc: win32::RECT = unsafe { std::mem::zeroed() };
+            unsafe { win32::GetClientRect(hwnd, &mut client_rc) };
+            let cw = client_rc.right - client_rc.left;
+            let ch = client_rc.bottom - client_rc.top;
+
+            if cw <= 0 || ch <= 0 {
+                unsafe { win32::EndPaint(hwnd, &ps) };
+                return 0;
+            }
+
+            // Create memory DC and compatible bitmap for flicker-free double buffering
+            let mem_dc = unsafe { win32::CreateCompatibleDC(hdc) };
+            let mem_bm = unsafe { win32::CreateCompatibleBitmap(hdc, cw, ch) };
+            let old_bm = unsafe { win32::SelectObject(mem_dc, mem_bm) };
+
+            // Fill background with window_bg
+            let mut delete_bg = false;
+            let bg_brush = if let Some(SafeHBRUSH(brush)) =
+                BRUSH_BG.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            {
+                *brush
+            } else {
+                delete_bg = true;
+                unsafe { win32::CreateSolidBrush(colors.window_bg) }
+            };
+            unsafe { win32::FillRect(mem_dc, &client_rc, bg_brush) };
+            if delete_bg {
+                unsafe { win32::DeleteObject(bg_brush) };
+            }
+
+            unsafe { win32::SetBkMode(mem_dc, 1 /* TRANSPARENT */) };
+
+            let preview_data = state::PREVIEW_DATA
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+
+            if let Some(data) = preview_data {
+                let margin = (10.0 * scale).round() as i32;
+                let header_h = (28.0 * scale).round() as i32;
+
+                // 1. Header: Title & Meta Badge
+                // Meta text on right
+                let font_listbox = FONT_LISTBOX.lock().unwrap_or_else(|e| e.into_inner());
+                let old_font = if let Some(SafeHFONT(font)) = font_listbox.as_ref() {
+                    Some(unsafe { win32::SelectObject(mem_dc, *font as win32::HGDIOBJ) })
+                } else {
+                    None
+                };
+
+                let mut meta_size = win32::SIZE { cx: 0, cy: 0 };
+                if !data.meta_w.is_empty() {
+                    unsafe {
+                        win32::GetTextExtentPoint32W(
+                            mem_dc,
+                            data.meta_w.as_ptr(),
+                            data.meta_w.len() as i32,
+                            &mut meta_size,
+                        );
+                    }
+
+                    let meta_rc = win32::RECT {
+                        left: (cw - margin - meta_size.cx).max(margin),
+                        top: margin,
+                        right: cw - margin,
+                        bottom: margin + header_h,
+                    };
+                    unsafe {
+                        win32::SetTextColor(mem_dc, colors.dim_text_color);
+                        let mut r = meta_rc;
+                        win32::DrawTextW(
+                            mem_dc,
+                            data.meta_w.as_ptr(),
+                            data.meta_w.len() as i32,
+                            &mut r,
+                            win32::DT_SINGLELINE | win32::DT_VCENTER | win32::DT_RIGHT | win32::DT_NOPREFIX,
+                        );
+                    }
+                }
+
+                // Title text on left (bold)
+                let font_bold = FONT_LISTBOX_BOLD.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(SafeHFONT(font)) = font_bold.as_ref() {
+                    unsafe { win32::SelectObject(mem_dc, *font as win32::HGDIOBJ) };
+                }
+
+                let title_rc = win32::RECT {
+                    left: margin,
+                    top: margin,
+                    right: (cw - margin - meta_size.cx - (8.0 * scale) as i32).max(margin),
+                    bottom: margin + header_h,
+                };
+                unsafe {
+                    win32::SetTextColor(mem_dc, colors.text_color);
+                    let mut r = title_rc;
+                    win32::DrawTextW(
+                        mem_dc,
+                        data.title_w.as_ptr(),
+                        data.title_w.len() as i32,
+                        &mut r,
+                        win32::DT_SINGLELINE
+                            | win32::DT_VCENTER
+                            | win32::DT_LEFT
+                            | win32::DT_END_ELLIPSIS
+                            | win32::DT_NOPREFIX,
+                    );
+                }
+
+                // 2. Content Card Box
+                let card_top = margin + header_h + (4.0 * scale).round() as i32;
+                let card_rc = win32::RECT {
+                    left: margin,
+                    top: card_top,
+                    right: cw - margin,
+                    bottom: ch - margin,
+                };
+
+                if card_rc.bottom > card_rc.top + 10 {
+                    unsafe {
+                        let pen_guard = state::PEN_BORDER.lock().unwrap_or_else(|e| e.into_inner());
+                        let border_pen = if let Some(SafeHPEN(p)) = pen_guard.as_ref() {
+                            *p
+                        } else {
+                            std::ptr::null_mut()
+                        };
+                        let old_pen = win32::SelectObject(mem_dc, border_pen);
+
+                        let brush_guard = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner());
+                        let card_brush = if let Some(SafeHBRUSH(b)) = brush_guard.as_ref() {
+                            *b
+                        } else {
+                            std::ptr::null_mut()
+                        };
+                        let old_brush = win32::SelectObject(mem_dc, card_brush);
+
+                        let round_r = (4.0 * scale) as i32;
+                        win32::RoundRect(
+                            mem_dc,
+                            card_rc.left,
+                            card_rc.top,
+                            card_rc.right,
+                            card_rc.bottom,
+                            round_r,
+                            round_r,
+                        );
+
+                        win32::SelectObject(mem_dc, old_brush);
+                        win32::SelectObject(mem_dc, old_pen);
+                    }
+
+                    // 3. Multiline text inside card box
+                    let inner_pad = (8.0 * scale).round() as i32;
+                    let mut text_rc = win32::RECT {
+                        left: card_rc.left + inner_pad,
+                        top: card_rc.top + inner_pad,
+                        right: card_rc.right - inner_pad,
+                        bottom: card_rc.bottom - inner_pad,
+                    };
+
+                    // Switch to monospace font for body text
+                    let font_mono = state::FONT_PREVIEW_MONO
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    if let Some(SafeHFONT(font)) = font_mono.as_ref() {
+                        unsafe { win32::SelectObject(mem_dc, *font as win32::HGDIOBJ) };
+                    } else if let Some(SafeHFONT(font)) = font_listbox.as_ref() {
+                        unsafe { win32::SelectObject(mem_dc, *font as win32::HGDIOBJ) };
+                    }
+
+                    if !data.content_w.is_empty() {
+                        unsafe {
+                            win32::SetTextColor(mem_dc, colors.text_color);
+                            win32::DrawTextW(
+                                mem_dc,
+                                data.content_w.as_ptr(),
+                                data.content_w.len() as i32,
+                                &mut text_rc,
+                                win32::DT_LEFT
+                                    | win32::DT_WORDBREAK
+                                    | win32::DT_EXPANDTABS
+                                    | win32::DT_EDITCONTROL
+                                    | win32::DT_NOPREFIX,
+                            );
+                        }
+                    }
+                }
+
+                if let Some(o_font) = old_font {
+                    unsafe { win32::SelectObject(mem_dc, o_font) };
+                }
+            }
+
+            // Outer 1px border
+            let mut delete_border = false;
+            let border_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_BORDER
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
+                *brush
+            } else {
+                delete_border = true;
+                unsafe { win32::CreateSolidBrush(colors.border_color) }
+            };
+            unsafe { win32::FrameRect(mem_dc, &client_rc, border_brush) };
+            if delete_border {
+                unsafe { win32::DeleteObject(border_brush) };
+            }
+
+            // Transfer buffer to screen DC
+            unsafe {
+                win32::BitBlt(
+                    hdc,
+                    0,
+                    0,
+                    cw,
+                    ch,
+                    mem_dc,
+                    0,
+                    0,
+                    win32::SRCCOPY,
+                );
+                win32::SelectObject(mem_dc, old_bm);
+                win32::DeleteObject(mem_bm);
+                win32::DeleteDC(mem_dc);
+                win32::EndPaint(hwnd, &ps);
+            }
+            return 0;
+        }
+        win32::WM_DPICHANGED => {
+            let is_dark = {
+                let state_guard = lock_state();
+                state_guard.as_ref().is_some_and(|s| s.is_dark)
+            };
+            let prc = lparam as *const win32::RECT;
+            if !prc.is_null() {
+                unsafe {
+                    let rc = *prc;
+                    win32::SetWindowPos(
+                        hwnd,
+                        std::ptr::null_mut(),
+                        rc.left,
+                        rc.top,
+                        rc.right - rc.left,
+                        rc.bottom - rc.top,
+                        win32::SWP_NOZORDER | win32::SWP_NOACTIVATE,
+                    );
+                }
+            }
+            darkmode::apply_to_window(hwnd, is_dark);
+            unsafe { win32::InvalidateRect(hwnd, std::ptr::null(), 1) };
+        }
+        win32::WM_DESTROY => {}
+        _ => return unsafe { win32::DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub unsafe extern "system" fn preview_window_proc(
+    _hwnd: win32::HWND,
+    _msg: u32,
+    _wparam: win32::WPARAM,
+    _lparam: win32::LPARAM,
+) -> win32::LRESULT {
+    0
 }
 
 #[cfg(target_os = "windows")]
@@ -800,6 +1193,7 @@ pub unsafe extern "system" fn window_proc(
                         focus_hwnd == hwnd
                             || EDIT_HWND.get().is_some_and(|h| focus_hwnd == h.0)
                             || LISTBOX_HWND.get().is_some_and(|h| focus_hwnd == h.0)
+                            || state::PREVIEW_HWND.get().is_some_and(|h| focus_hwnd == h.0)
                     };
                     if !is_child {
                         ui::hide_window();
@@ -812,12 +1206,14 @@ pub unsafe extern "system" fn window_proc(
                 } else if code == LBN_SELCHANGE as usize {
                     update_top_index();
 
-                    // Navigate folders immediately on a single click
                     if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
                         let cur = unsafe {
                             win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0)
                         } as isize;
                         if cur != win32::LB_ERR {
+                            ui::update_preview(Some(cur as usize));
+
+                            // Navigate folders immediately on a single click
                             let mut is_folder = false;
                             {
                                 let state_guard = lock_state();
@@ -843,6 +1239,7 @@ pub unsafe extern "system" fn window_proc(
                         focus_hwnd == hwnd
                             || EDIT_HWND.get().is_some_and(|h| focus_hwnd == h.0)
                             || LISTBOX_HWND.get().is_some_and(|h| focus_hwnd == h.0)
+                            || state::PREVIEW_HWND.get().is_some_and(|h| focus_hwnd == h.0)
                     };
                     if !is_child {
                         ui::hide_window();
@@ -884,6 +1281,9 @@ pub unsafe extern "system" fn window_proc(
                     }
                     if !items.is_empty() {
                         win32::SendMessageW(*hwnd_listbox, win32::LB_SETCURSEL, 0, 0);
+                        ui::update_preview(Some(0));
+                    } else {
+                        ui::update_preview(None);
                     }
                     win32::SendMessageW(*hwnd_listbox, 0x000B /* WM_SETREDRAW */, 1, 0);
                     win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
@@ -932,18 +1332,20 @@ pub unsafe extern "system" fn window_proc(
             }
         }
         win32::WM_SETTINGCHANGE => {
+            state::log_debug("WM_SETTINGCHANGE received.");
             let is_sys_dark = darkmode::is_system_dark_mode();
             let icon_id = if is_sys_dark { 2 } else { 1 };
-            unsafe {
-                let hinstance = win32::GetModuleHandleW(std::ptr::null());
-                let new_icon = win32::LoadIconW(hinstance, icon_id as *const u16);
-                if !new_icon.is_null() {
-                    let mut nid: win32::NOTIFYICONDATAW = std::mem::zeroed();
-                    nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
-                    nid.hWnd = hwnd;
-                    nid.uID = 1;
-                    nid.uFlags = win32::NIF_ICON;
-                    nid.hIcon = new_icon;
+            let hinstance = unsafe { win32::GetModuleHandleW(std::ptr::null()) };
+            let app_icon = unsafe { win32::LoadIconW(hinstance, icon_id as *const u16) };
+
+            if !app_icon.is_null() {
+                let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+                nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+                nid.hWnd = hwnd;
+                nid.uID = 1;
+                nid.uFlags = win32::NIF_ICON;
+                nid.hIcon = app_icon;
+                unsafe {
                     win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid);
                 }
             }
@@ -955,6 +1357,12 @@ pub unsafe extern "system" fn window_proc(
                 if state.visible && state.is_dark != new_is_dark {
                     state.is_dark = new_is_dark;
                     update_theme_resources(hwnd, new_is_dark);
+                    if let Some(SafeHWND(hwnd_preview)) = state::PREVIEW_HWND.get() {
+                        darkmode::apply_to_window(*hwnd_preview, new_is_dark);
+                        unsafe {
+                            win32::InvalidateRect(*hwnd_preview, std::ptr::null(), 1);
+                        }
+                    }
                     unsafe {
                         win32::InvalidateRect(hwnd, std::ptr::null(), 1);
                     }
@@ -1002,11 +1410,11 @@ pub unsafe extern "system" fn window_proc(
             let hdc = mem_dc;
             let selected = (dis.item_state & win32::ODS_SELECTED) != 0;
 
-            let (is_dark, _mode, is_folder) = {
+            let (is_dark, _mode, is_folder, is_in_fifo_lifo_queue) = {
                 let state_guard = lock_state();
                 state_guard
                     .as_ref()
-                    .map_or((false, Mode::Snippet, false), |s| {
+                    .map_or((false, Mode::Snippet, false, false), |s| {
                         let is_folder = if s.mode == Mode::Snippet
                             && (dis.item_id as usize) < s.current_full_paths.len()
                         {
@@ -1015,7 +1423,11 @@ pub unsafe extern "system" fn window_proc(
                         } else {
                             false
                         };
-                        (s.is_dark, s.mode, is_folder)
+                        let is_in_fifo = s.mode == Mode::History
+                            && (dis.item_id as usize) < s.current_full_paths.len()
+                            && s.fifo_lifo_queue
+                                .contains(&s.current_full_paths[dis.item_id as usize]);
+                        (s.is_dark, s.mode, is_folder, is_in_fifo)
                     })
             };
             let colors = if is_dark { &DARK_THEME } else { &LIGHT_THEME };
@@ -1044,41 +1456,11 @@ pub unsafe extern "system" fn window_proc(
             };
 
             // Setup colors based on selection status
-            let bg_color = if selected {
-                colors.sel_bg
-            } else {
-                colors.window_bg
-            };
             let text_color = if selected {
                 colors.sel_text
             } else {
                 colors.text_color
             };
-
-            // Draw item background using cached brushes
-            let (bg_brush, delete_brush) = if selected {
-                if let Some(SafeHBRUSH(brush)) = BRUSH_SEL_BG
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_ref()
-                {
-                    (*brush, false)
-                } else {
-                    (unsafe { win32::CreateSolidBrush(bg_color) }, true)
-                }
-            } else {
-                if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_ref()
-                {
-                    (*brush, false)
-                } else {
-                    (unsafe { win32::CreateSolidBrush(bg_color) }, true)
-                }
-            };
-
-            let scale = unsafe { win32::GetDpiForWindow(dis.hwnd_item) } as f32 / 96.0;
 
             let top_index =
                 unsafe { win32::SendMessageW(dis.hwnd_item, win32::LB_GETTOPINDEX, 0, 0) } as usize;
@@ -1093,41 +1475,50 @@ pub unsafe extern "system" fn window_proc(
                 None
             };
 
-            if selected {
-                let listbox_bg_brush = if let Some(SafeHBRUSH(brush)) = BRUSH_LISTBOX
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_ref()
+            let scale = unsafe { win32::GetDpiForWindow(hwnd) } as f32 / 96.0;
+
+            // Draw background
+            let mut delete_brush = false;
+            let bg_brush = if selected {
+                if let Some(SafeHBRUSH(brush)) =
+                    BRUSH_SEL_BG.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
                 {
                     *brush
                 } else {
-                    std::ptr::null_mut()
-                };
-                if !listbox_bg_brush.is_null() {
-                    unsafe { win32::FillRect(hdc, &rc, listbox_bg_brush) };
+                    delete_brush = true;
+                    unsafe { win32::CreateSolidBrush(colors.sel_bg) }
                 }
+            } else if let Some(SafeHBRUSH(brush)) =
+                BRUSH_LISTBOX.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            {
+                *brush
+            } else {
+                delete_brush = true;
+                unsafe { win32::CreateSolidBrush(colors.window_bg) }
+            };
 
-                let gap_x = (2.0 * scale) as i32;
-                let gap_y = (1.0 * scale) as i32;
-                // Pill-shaped rounded floating background: add 2px horizontal and 1px vertical gap (scaled)
-                let pill_rc = win32::RECT {
-                    left: rc.left + gap_x,
-                    top: rc.top + gap_y,
-                    right: rc.right - gap_x,
-                    bottom: rc.bottom - gap_y,
+            if selected {
+                let margin_h = (4.0 * scale) as i32;
+                let margin_v = (1.0 * scale) as i32;
+                let sel_rc = win32::RECT {
+                    left: rc.left + margin_h,
+                    top: rc.top + margin_v,
+                    right: rc.right - margin_h,
+                    bottom: rc.bottom - margin_v,
                 };
+                let round_size = (4.0 * scale) as i32;
+
                 unsafe {
                     let old_brush = win32::SelectObject(hdc, bg_brush);
-                    let old_pen = win32::SelectObject(hdc, win32::GetStockObject(8 /* NULL_PEN */));
+                    let old_pen =
+                        win32::SelectObject(hdc, win32::GetStockObject(win32::NULL_PEN));
 
-                    let round_size = (4.0 * scale) as i32;
-                    // Draw rounded rectangle with scaled ellipse diameter (originally 8px, reduced to 4px for sharper look)
                     win32::RoundRect(
                         hdc,
-                        pill_rc.left,
-                        pill_rc.top,
-                        pill_rc.right,
-                        pill_rc.bottom,
+                        sel_rc.left,
+                        sel_rc.top,
+                        sel_rc.right,
+                        sel_rc.bottom,
                         round_size,
                         round_size,
                     );
@@ -1146,23 +1537,14 @@ pub unsafe extern "system" fn window_proc(
                 win32::SetBkMode(hdc, 1 /* TRANSPARENT */)
             };
 
-            let is_in_fifo_lifo_queue = {
-                let state_guard = lock_state();
-                state_guard.as_ref().is_some_and(|s| {
-                    s.mode == Mode::History
-                        && (dis.item_id as usize) < s.current_full_paths.len()
-                        && s.fifo_lifo_queue
-                            .contains(&s.current_full_paths[dis.item_id as usize])
-                })
-            };
-
             // Draw shortcut keycap if applicable
-            let shortcut_width = (16.0 * scale) as i32;
+            let key_margin_left = (10.0 * scale) as i32;
+            let key_size_w = (16.0 * scale) as i32;
+            let key_size_h = (16.0 * scale) as i32;
+            let key_total_left = key_margin_left + key_size_w;
 
             if let Some(shortcut_char) = shortcut_char_opt {
-                let key_size_w = (16.0 * scale) as i32;
-                let key_size_h = (16.0 * scale) as i32;
-                let key_x = rc.left + (4.0 * scale) as i32;
+                let key_x = rc.left + key_margin_left;
                 let key_y = rc.top + (rc.bottom - rc.top - key_size_h) / 2;
                 let mut key_rc = win32::RECT {
                     left: key_x,
@@ -1172,15 +1554,19 @@ pub unsafe extern "system" fn window_proc(
                 };
 
                 unsafe {
-                    let mut pen_color = colors.border_color;
-                    let mut key_text_color = colors.text_color;
+                    let key_pen = if is_in_fifo_lifo_queue && !selected {
+                        let pen_guard = state::PEN_SEL.lock().unwrap_or_else(|e| e.into_inner());
+                        pen_guard.as_ref().map_or(std::ptr::null_mut(), |p| p.0)
+                    } else {
+                        let pen_guard = state::PEN_BORDER.lock().unwrap_or_else(|e| e.into_inner());
+                        pen_guard.as_ref().map_or(std::ptr::null_mut(), |p| p.0)
+                    };
+                    let key_text_color = if is_in_fifo_lifo_queue && !selected {
+                        colors.sel_bg
+                    } else {
+                        colors.text_color
+                    };
 
-                    if is_in_fifo_lifo_queue && !selected {
-                        pen_color = colors.sel_bg;
-                        key_text_color = colors.sel_bg;
-                    }
-
-                    let key_pen = win32::CreatePen(win32::PS_SOLID, 1, pen_color);
                     let key_brush_guard = BRUSH_EDIT.lock().unwrap_or_else(|e| e.into_inner());
                     let key_brush = if let Some(SafeHBRUSH(brush)) = key_brush_guard.as_ref() {
                         *brush
@@ -1204,7 +1590,6 @@ pub unsafe extern "system" fn window_proc(
 
                     win32::SelectObject(hdc, old_pen);
                     win32::SelectObject(hdc, old_brush);
-                    win32::DeleteObject(key_pen);
 
                     let old_text_color = win32::SetTextColor(hdc, key_text_color);
 
@@ -1263,8 +1648,7 @@ pub unsafe extern "system" fn window_proc(
             let has_icon = icon_type_opt.is_some();
             if let Some(icon_type) = icon_type_opt {
                 let icon_size = (16.0 * scale) as i32;
-                let icon_left = (12.0 * scale) as i32;
-                let icon_x = rc.left + icon_left + shortcut_width;
+                let icon_x = rc.left + key_total_left + (6.0 * scale) as i32;
                 let icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
                 // Use dim color for non-selected icons, accent color when selected
                 let icon_color = if selected {
@@ -1287,12 +1671,14 @@ pub unsafe extern "system" fn window_proc(
 
             // Draw candidate text (adjust margin based on pill shape padding)
             let text_left_margin = if has_icon {
-                shortcut_width + (34.0 * scale) as i32
+                key_total_left + (30.0 * scale) as i32
             } else {
-                shortcut_width + (12.0 * scale) as i32
+                key_total_left + (8.0 * scale) as i32
             };
+            let chevron_size = (14.0 * scale) as i32;
+            let chevron_margin_right = (14.0 * scale) as i32;
             let text_right_margin = if is_folder {
-                (26.0 * scale) as i32
+                chevron_margin_right + chevron_size + (8.0 * scale) as i32
             } else {
                 (12.0 * scale) as i32
             };
@@ -1320,8 +1706,8 @@ pub unsafe extern "system" fn window_proc(
 
             // Draw folder indicator (chevron-right) on the right edge using native vector drawing
             if is_folder {
-                let arrow_x = rc.right - 20;
-                let arrow_y = rc.top + (rc.bottom - rc.top - 14) / 2;
+                let arrow_x = rc.right - chevron_margin_right - chevron_size;
+                let arrow_y = rc.top + (rc.bottom - rc.top - chevron_size) / 2;
                 let chevron_color = if selected {
                     colors.sel_text
                 } else {
@@ -1332,7 +1718,7 @@ pub unsafe extern "system" fn window_proc(
                     IconType::ChevronRight,
                     arrow_x,
                     arrow_y,
-                    14,
+                    chevron_size,
                     chevron_color,
                 );
             }
@@ -1730,6 +2116,16 @@ pub unsafe extern "system" fn window_proc(
         WM_HIDE_WINDOW => {
             ui::hide_window();
         }
+        win32::WM_TIMER => {
+            const TIMER_PASTE_ID: usize = 9999;
+            if wparam == TIMER_PASTE_ID {
+                unsafe {
+                    win32::KillTimer(hwnd, TIMER_PASTE_ID);
+                    win32::PostMessageW(hwnd, WM_FIFO_LIFO_PASTE, 0, 0);
+                }
+                return 0;
+            }
+        }
         WM_FIFO_LIFO_PASTE => {
             // [連打対策のディレイ制御]
             // 前回のペースト処理完了から 150ms 以上経過するまで次の処理を遅延させます。
@@ -1744,19 +2140,13 @@ pub unsafe extern "system" fn window_proc(
             let last = LAST_PASTE_TIME.load(Ordering::Relaxed);
             let diff = now.saturating_sub(last);
 
+            const TIMER_PASTE_ID: usize = 9999;
             if diff < 150 {
-                // まだ 150ms 経過していない場合は、メインスレッドをスリープでブロックせず、
-                // 非同期のバックグラウンドスレッドで残余時間だけスリープした後に、
-                // 本ウィンドウプロシージャへ同じメッセージを再送（PostMessage）して遅延処理させます。
-                let hwnd_val = hwnd as isize;
                 let delay = 150 - diff;
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(delay));
-                    unsafe {
-                        win32::PostMessageW(hwnd_val as win32::HWND, WM_FIFO_LIFO_PASTE, 0, 0);
-                    }
-                });
-                return 0; // メインスレッドでの現在の処理はスキップして即時リターンします
+                unsafe {
+                    win32::SetTimer(hwnd, TIMER_PASTE_ID, delay as u32, None);
+                }
+                return 0; // メインスレッドでの現在の処理はスキップしてタイマーで遅延実行します
             }
             LAST_PASTE_TIME.store(now, Ordering::Relaxed);
 
@@ -1883,13 +2273,12 @@ pub unsafe extern "system" fn window_proc(
                 && let Some(text) = util::get_clipboard_text()
                 && !text.is_empty()
             {
-                let mut is_new = false;
+                let mut history_to_save = None;
                 let (mode, queue_updated) = {
                     let mut state_guard = lock_state();
                     if let Some(state) = &mut *state_guard {
                         if text != state.last_clipboard_value {
                             state.last_clipboard_value = text.clone();
-                            is_new = true;
 
                             let mut updated = false;
                             if state.fifo_lifo_mode != FifoLifoMode::None
@@ -1899,19 +2288,7 @@ pub unsafe extern "system" fn window_proc(
                                 updated = true;
                             }
                             state::sync_fifo_lifo_state(state);
-                            (state.fifo_lifo_mode, updated)
-                        } else {
-                            (FifoLifoMode::None, false)
-                        }
-                    } else {
-                        (FifoLifoMode::None, false)
-                    }
-                };
 
-                if is_new {
-                    let history_to_save = {
-                        let mut state_guard = lock_state();
-                        if let Some(state) = &mut *state_guard {
                             let history = std::sync::Arc::make_mut(&mut state.history);
                             if let Some(pos) = history.iter().position(|x| x == &text) {
                                 history.remove(pos);
@@ -1921,17 +2298,22 @@ pub unsafe extern "system" fn window_proc(
                             if history.len() > max_history {
                                 history.pop_back();
                             }
-                            Some(std::sync::Arc::clone(&state.history))
+                            history_to_save = Some(std::sync::Arc::clone(&state.history));
+
+                            (state.fifo_lifo_mode, updated)
                         } else {
-                            None
+                            (FifoLifoMode::None, false)
                         }
-                    };
-                    if let Some(history_arc) = history_to_save
-                        && state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed)
-                        && let Some(sender) = state::HISTORY_SAVE_SENDER.get()
-                    {
-                        let _ = sender.send(history_arc);
+                    } else {
+                        (FifoLifoMode::None, false)
                     }
+                };
+
+                if let Some(history_arc) = history_to_save
+                    && state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed)
+                    && let Some(sender) = state::HISTORY_SAVE_SENDER.get()
+                {
+                    let _ = sender.send(history_arc);
                 }
 
                 if queue_updated {
@@ -2071,6 +2453,20 @@ pub unsafe extern "system" fn window_proc(
                 .take()
             {
                 unsafe { win32::DeleteObject(brush) };
+            }
+            if let Some(SafeHPEN(pen)) = state::PEN_BORDER
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                unsafe { win32::DeleteObject(pen) };
+            }
+            if let Some(SafeHPEN(pen)) = state::PEN_SEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                unsafe { win32::DeleteObject(pen) };
             }
             unsafe { win32::PostQuitMessage(0) };
         }
@@ -2273,4 +2669,14 @@ pub fn draw_vector_icon(
             win32::DeleteObject(pen);
         }
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub unsafe extern "system" fn window_proc(
+    _hwnd: win32::HWND,
+    _msg: u32,
+    _wparam: win32::WPARAM,
+    _lparam: win32::LPARAM,
+) -> win32::LRESULT {
+    0
 }

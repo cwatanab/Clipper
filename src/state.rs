@@ -72,6 +72,11 @@ pub struct SafeHFONT(pub win32::HFONT);
 unsafe impl Send for SafeHFONT {}
 unsafe impl Sync for SafeHFONT {}
 
+#[derive(Clone, Copy, Debug)]
+pub struct SafeHPEN(pub win32::HGDIOBJ);
+unsafe impl Send for SafeHPEN {}
+unsafe impl Sync for SafeHPEN {}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum KeyTriggerKind {
@@ -148,7 +153,21 @@ pub static LAST_KEYDOWN_TIME: AtomicU32 = AtomicU32::new(0);
 pub static OTHER_KEY_PRESSED: AtomicBool = AtomicBool::new(false);
 pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
 pub static SHOW_TABS: AtomicBool = AtomicBool::new(true);
+pub static SHOW_PREVIEW: AtomicBool = AtomicBool::new(true);
 pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Clone, Default)]
+pub struct PreviewData {
+    pub title_w: Vec<u16>,
+    pub content_w: Vec<u16>,
+    pub meta_w: Vec<u16>,
+    pub is_folder: bool,
+}
+
+pub static PREVIEW_DATA: Mutex<Option<PreviewData>> = Mutex::new(None);
+pub static PREVIEW_HOVER_INDEX: std::sync::atomic::AtomicIsize =
+    std::sync::atomic::AtomicIsize::new(-1);
+pub static PREVIEW_HWND: OnceLock<SafeHWND> = OnceLock::new();
 pub static FIFO_LIFO_ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static FIFO_LIFO_HAS_ITEMS: AtomicBool = AtomicBool::new(false);
 pub static SNIPPET_KEY_KIND: std::sync::atomic::AtomicU8 =
@@ -205,9 +224,14 @@ pub static BRUSH_EDIT: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
 pub static BRUSH_LISTBOX: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
 pub static BRUSH_BORDER: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
 pub static BRUSH_SEL_BG: Mutex<Option<SafeHBRUSH>> = Mutex::new(None);
+pub static PEN_BORDER: Mutex<Option<SafeHPEN>> = Mutex::new(None);
+pub static PEN_SEL: Mutex<Option<SafeHPEN>> = Mutex::new(None);
+pub static IS_VISIBLE: AtomicBool = AtomicBool::new(false);
+pub static IS_LISTBOX_MOUSE_TRACKING: AtomicBool = AtomicBool::new(false);
 pub static FONT_EDIT: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_LISTBOX: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_LISTBOX_BOLD: Mutex<Option<SafeHFONT>> = Mutex::new(None);
+pub static FONT_PREVIEW_MONO: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_ICONS_16: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 pub static FONT_ICONS_18: Mutex<Option<SafeHFONT>> = Mutex::new(None);
 

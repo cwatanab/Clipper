@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
     #[default]
@@ -45,6 +45,12 @@ pub struct Config {
     /// タブバー（履歴・スニペット切替）を表示するかどうか
     #[serde(default = "default_show_tabs")]
     pub show_tabs: bool,
+    /// プレビューポップアップを表示するかどうか
+    #[serde(default = "default_show_preview")]
+    pub show_preview: bool,
+    /// プレビューポップアップの基準幅（px）
+    #[serde(default = "default_preview_width")]
+    pub preview_width: f32,
 }
 
 fn default_max_history() -> usize {
@@ -103,6 +109,16 @@ fn default_notification_sound() -> bool {
     false
 }
 
+/// プレビュー表示の可否のデフォルト値 (true)
+fn default_show_preview() -> bool {
+    true
+}
+
+/// プレビュー幅 (px) のデフォルト値 (340.0)
+fn default_preview_width() -> f32 {
+    340.0
+}
+
 /// タブ表示の可否のデフォルト値 (true)
 fn default_show_tabs() -> bool {
     true
@@ -126,6 +142,8 @@ impl Default for Config {
             notification_duration: 2,
             notification_sound: false,
             show_tabs: true,
+            show_preview: true,
+            preview_width: 340.0,
         }
     }
 }
@@ -187,6 +205,8 @@ mod tests {
         assert_eq!(config.notification_duration, 2);
         assert_eq!(config.notification_sound, false);
         assert_eq!(config.show_tabs, true);
+        assert_eq!(config.show_preview, true);
+        assert_eq!(config.preview_width, 340.0);
     }
 
     #[test]
@@ -207,6 +227,8 @@ mod tests {
             notification_duration = 10
             notification_sound = true
             show_tabs = false
+            show_preview = false
+            preview_width = 400.0
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -224,6 +246,8 @@ mod tests {
         assert_eq!(config.notification_duration, 10);
         assert_eq!(config.notification_sound, true);
         assert_eq!(config.show_tabs, false);
+        assert_eq!(config.show_preview, false);
+        assert_eq!(config.preview_width, 400.0);
     }
 
     #[test]

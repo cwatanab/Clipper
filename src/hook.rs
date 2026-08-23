@@ -168,6 +168,10 @@ pub unsafe extern "system" fn mouse_hook_proc(
             || wp == win32::WM_NCRBUTTONDOWN
             || wp == win32::WM_NCMBUTTONDOWN
         {
+            if !crate::state::IS_VISIBLE.load(Ordering::Relaxed) {
+                return unsafe { win32::CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) };
+            }
+
             LAST_KEY_VK.store(0, Ordering::Relaxed);
             let ms = unsafe { *(lparam as *const win32::MSLLHOOKSTRUCT) };
             let pt = ms.pt;
@@ -183,11 +187,30 @@ pub unsafe extern "system" fn mouse_hook_proc(
                 };
                 unsafe { win32::GetWindowRect(*hwnd_main, &mut rect) };
 
-                let inside = pt.x >= rect.left
+                let inside_main = pt.x >= rect.left
                     && pt.x <= rect.right
                     && pt.y >= rect.top
                     && pt.y <= rect.bottom;
-                if !inside {
+
+                let inside_preview = if let Some(SafeHWND(hwnd_preview)) = crate::state::PREVIEW_HWND.get()
+                    && !(*hwnd_preview).is_null()
+                {
+                    let mut prev_rect = win32::RECT {
+                        left: 0,
+                        top: 0,
+                        right: 0,
+                        bottom: 0,
+                    };
+                    unsafe { win32::GetWindowRect(*hwnd_preview, &mut prev_rect) };
+                    pt.x >= prev_rect.left
+                        && pt.x <= prev_rect.right
+                        && pt.y >= prev_rect.top
+                        && pt.y <= prev_rect.bottom
+                } else {
+                    false
+                };
+
+                if !inside_main && !inside_preview {
                     unsafe { win32::PostMessageW(*hwnd_main, WM_HIDE_WINDOW, 0, 0) };
                 }
             }
@@ -223,6 +246,15 @@ pub fn uninstall_mouse_hook() {
 
 #[cfg(not(target_os = "windows"))]
 pub unsafe extern "system" fn mouse_hook_proc(
+    _code: i32,
+    _wparam: win32::WPARAM,
+    _lparam: win32::LPARAM,
+) -> win32::LRESULT {
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+pub unsafe extern "system" fn keyboard_hook_proc(
     _code: i32,
     _wparam: win32::WPARAM,
     _lparam: win32::LPARAM,

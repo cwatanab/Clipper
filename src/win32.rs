@@ -98,6 +98,15 @@ mod windows {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct TRACKMOUSEEVENT {
+        pub cbSize: u32,
+        pub dwFlags: u32,
+        pub hwndTrack: HWND,
+        pub dwHoverTime: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct RECT {
         pub left: i32,
         pub top: i32,
@@ -224,6 +233,7 @@ mod windows {
     pub const WS_EX_TOPMOST: u32 = 0x00000008;
     pub const WS_EX_TOOLWINDOW: u32 = 0x00000080;
     pub const WS_EX_CLIENTEDGE: u32 = 0x00000200;
+    pub const WS_EX_NOACTIVATE: u32 = 0x08000000;
 
     pub const COLOR_3DFACE: u32 = 15;
     pub const COLOR_WINDOW: u32 = 5;
@@ -236,9 +246,18 @@ mod windows {
     pub const WM_DESTROY: u32 = 0x0002;
     pub const WM_SETFONT: u32 = 0x0030;
     pub const WM_ACTIVATE: u32 = 0x0006;
+    pub const WM_MOUSEACTIVATE: u32 = 0x0021;
+    pub const MA_NOACTIVATE: isize = 3;
+    pub const SW_HIDE: i32 = 0;
+    pub const SW_SHOWNOACTIVATE: i32 = 4;
+    pub const SWP_NOZORDER: u32 = 0x0004;
+    pub const SWP_NOACTIVATE: u32 = 0x0010;
+    pub const SWP_FRAMECHANGED: u32 = 0x0020;
+    pub const SWP_SHOWWINDOW: u32 = 0x0040;
     pub const WM_PAINT: u32 = 0x000F;
     pub const WM_ERASEBKGND: u32 = 0x0014;
     pub const WM_SETREDRAW: u32 = 0x000B;
+    pub const WM_TIMER: u32 = 0x0113;
     pub const SRCCOPY: u32 = 0x00CC0020;
     pub const WM_SETTINGCHANGE: u32 = 0x001A;
     pub const WA_INACTIVE: usize = 0;
@@ -258,6 +277,9 @@ mod windows {
     pub const WM_LBUTTONUP: u32 = 0x0202;
     pub const WM_RBUTTONDOWN: u32 = 0x0204;
     pub const WM_MBUTTONDOWN: u32 = 0x0207;
+    pub const WM_MOUSEMOVE: u32 = 0x0200;
+    pub const WM_MOUSELEAVE: u32 = 0x02A3;
+    pub const TME_LEAVE: u32 = 0x00000002;
     pub const WM_NCLBUTTONDOWN: u32 = 0x00A1;
     pub const WM_NCRBUTTONDOWN: u32 = 0x00A4;
     pub const WM_NCMBUTTONDOWN: u32 = 0x00A7;
@@ -283,9 +305,13 @@ mod windows {
     pub const DT_CENTER: u32 = 0x00000001;
     pub const DT_RIGHT: u32 = 0x00000002;
     pub const DT_VCENTER: u32 = 0x00000004;
+    pub const DT_WORDBREAK: u32 = 0x00000010;
     pub const DT_SINGLELINE: u32 = 0x00000020;
-    pub const DT_END_ELLIPSIS: u32 = 0x00008000;
+    pub const DT_EXPANDTABS: u32 = 0x00000040;
+    pub const DT_CALCRECT: u32 = 0x00000400;
     pub const DT_NOPREFIX: u32 = 0x00000800;
+    pub const DT_EDITCONTROL: u32 = 0x00002000;
+    pub const DT_END_ELLIPSIS: u32 = 0x00008000;
     pub const DT_NOCLIP: u32 = 0x00000100;
 
     pub const PS_SOLID: i32 = 0;
@@ -487,6 +513,14 @@ mod windows {
         pub fn EmptyClipboard() -> BOOL;
         pub fn BeginPaint(hWnd: HWND, lpPaint: *mut PAINTSTRUCT) -> HDC;
         pub fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) -> BOOL;
+        pub fn TrackMouseEvent(lpEventTrack: *mut TRACKMOUSEEVENT) -> BOOL;
+        pub fn SetTimer(
+            hWnd: HWND,
+            nIDEvent: usize,
+            uElapse: u32,
+            lpTimerFunc: Option<unsafe extern "system" fn(HWND, u32, usize, u32)>,
+        ) -> usize;
+        pub fn KillTimer(hWnd: HWND, uIDEvent: usize) -> BOOL;
     }
 
     #[link(name = "gdi32")]
@@ -847,6 +881,24 @@ mod windows {
     pub const ERROR_ALREADY_EXISTS: u32 = 183;
     pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
+    pub const WS_EX_NOACTIVATE: u32 = 0x08000000;
+    pub const WM_MOUSEACTIVATE: u32 = 0x0021;
+    pub const MA_NOACTIVATE: isize = 3;
+    pub const SW_HIDE: i32 = 0;
+    pub const SW_SHOWNOACTIVATE: i32 = 4;
+    pub const SWP_NOZORDER: u32 = 0x0004;
+    pub const SWP_NOACTIVATE: u32 = 0x0010;
+    pub const SWP_FRAMECHANGED: u32 = 0x0020;
+    pub const SWP_SHOWWINDOW: u32 = 0x0040;
+    pub const WM_TIMER: u32 = 0x0113;
+    pub const WM_MOUSEMOVE: u32 = 0x0200;
+    pub const WM_MOUSELEAVE: u32 = 0x02A3;
+    pub const TME_LEAVE: u32 = 0x00000002;
+    pub const DT_WORDBREAK: u32 = 0x00000010;
+    pub const DT_EXPANDTABS: u32 = 0x00000040;
+    pub const DT_EDITCONTROL: u32 = 0x00002000;
+    pub const DT_CALCRECT: u32 = 0x00000400;
+
     pub type HKEY = usize;
     pub const HKEY_CURRENT_USER: HKEY = 0;
     pub const KEY_READ: u32 = 0;
@@ -865,12 +917,25 @@ mod windows {
 
     #[repr(C)]
     #[derive(Clone, Copy)]
+    pub struct TRACKMOUSEEVENT {
+        pub cbSize: u32,
+        pub dwFlags: u32,
+        pub hwndTrack: HWND,
+        pub dwHoverTime: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
     pub struct MSLLHOOKSTRUCT {
         pub pt: RECT,
     }
 
-    pub unsafe fn GetForegroundWindow() -> HWND {
+    pub unsafe fn TrackMouseEvent(_lpEventTrack: *mut TRACKMOUSEEVENT) -> i32 {
         0
+    }
+
+    pub unsafe fn GetForegroundWindow() -> HWND {
+        std::ptr::null_mut()
     }
     pub unsafe fn SetForegroundWindow(_hwnd: HWND) -> i32 {
         0
@@ -998,10 +1063,21 @@ mod windows {
         0
     }
     pub unsafe fn GetFocus() -> HWND {
-        0
+        std::ptr::null_mut()
     }
     pub unsafe fn GetClipboardOwner() -> HWND {
+        std::ptr::null_mut()
+    }
+    pub unsafe fn SetTimer(
+        _hWnd: HWND,
+        _nIDEvent: usize,
+        _uElapse: u32,
+        _lpTimerFunc: Option<unsafe extern "system" fn(HWND, u32, usize, u32)>,
+    ) -> usize {
         0
+    }
+    pub unsafe fn KillTimer(_hWnd: HWND, _uIDEvent: usize) -> BOOL {
+        1
     }
     pub unsafe fn OpenProcess(
         _dwDesiredAccess: u32,

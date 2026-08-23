@@ -1,19 +1,24 @@
 # CLAUDE.md - Clipper Development Guide
 
+## Target Platform & Toolchain
+
+- **Target Triple**: `x86_64-pc-windows-msvc` (MSVC toolchain is mandatory for official releases)
+- Detailed cross-compilation instructions: See [BUILD.md](file:///home/cwatanab/workspaces/Clipper/BUILD.md)
+
 ## Build & Test Commands
 
-- Build debug binary: `rtk cargo build`
-- Build optimized release binary: `rtk cargo build --release`
-- Run all unit tests: `rtk cargo test`
+- Build debug binary (MSVC): `rtk cargo build --target x86_64-pc-windows-msvc` (or `cargo xwin build --target x86_64-pc-windows-msvc` on Linux/WSL)
+- Build optimized release binary (MSVC): `rtk cargo build --release --target x86_64-pc-windows-msvc` (or `cargo xwin build --release --target x86_64-pc-windows-msvc` on Linux/WSL)
+- Run all unit tests: `cargo test --target x86_64-pc-windows-msvc --no-run`
 - Code formatting check: `rtk cargo fmt -- --check`
 - Code formatting fix: `rtk cargo fmt`
-- Static analysis & linting: `rtk cargo clippy`
+- Static analysis & linting: `rtk cargo clippy --target x86_64-pc-windows-msvc`
 - Clean build artifacts: `rtk cargo clean`
 
 ## Code & UI Guidelines
 
 1. **Win32 & GDI Architecture**:
-   - The application relies on native Win32 API calls (declared in [src/win32.rs](file:///D:/Develop/Clipper/src/win32.rs)).
+   - The application relies on native Win32 API calls (declared in [src/win32.rs](file:///home/cwatanab/workspaces/Clipper/src/win32.rs)).
    - Draw UI elements inside the listbox owner-draw `WM_DRAWITEM` handler to ensure optimal rendering performance.
    - Properly release all allocated GDI objects (brushes, fonts, etc.) using `DeleteObject` when redrawing or on exit to prevent resource leaks.
 
@@ -22,10 +27,10 @@
    - On window deactivation/hide, always release the Migemo compact dictionary (`state::clear_migemo_dict()`) and call `SetProcessWorkingSetSize(GetCurrentProcess(), -1, -1)` to trim the working set to zero.
 
 3. **Settings & Backward Compatibility**:
-   - When introducing new configuration fields to `config.toml`, always add default fallbacks using `#[serde(default = "...")]` in [src/config.rs](file:///D:/Develop/Clipper/src/config.rs) to maintain backward compatibility with older config files.
+   - When introducing new configuration fields to `config.toml` (e.g. `show_preview`, `preview_width`), always add default fallbacks using `#[serde(default = "...")]` in [src/config.rs](file:///home/cwatanab/workspaces/Clipper/src/config.rs) to maintain backward compatibility with older config files.
 
 4. **Hotkeys**:
-   - Global keyboard hooks are defined in [src/hook.rs](file:///D:/Develop/Clipper/src/hook.rs). Hotkey double-press detection interval is configurable via `double_tap_ms`.
+   - Global keyboard hooks are defined in [src/hook.rs](file:///home/cwatanab/workspaces/Clipper/src/hook.rs). Hotkey double-press detection interval is configurable via `double_tap_ms`.
 
 ---
 

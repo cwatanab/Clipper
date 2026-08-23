@@ -211,6 +211,192 @@ pub fn move_listbox_selection(dir: i32) {
             unsafe {
                 win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 0);
             }
+            update_preview(Some(next as usize));
+        }
+    }
+}
+
+pub fn update_preview(index_opt: Option<usize>) {
+    let show_preview = state::SHOW_PREVIEW.load(Ordering::Relaxed);
+    if !show_preview {
+        if let Some(SafeHWND(hwnd_preview)) = state::PREVIEW_HWND.get() {
+            unsafe { win32::ShowWindow(*hwnd_preview, win32::SW_HIDE) };
+        }
+        return;
+    }
+
+    let (preview_data, is_visible) = {
+        let state_guard = lock_state();
+        if let Some(state) = &*state_guard {
+            if !state.visible {
+                (None, false)
+            } else if let Some(idx) = index_opt {
+                if idx < state.current_full_paths.len() {
+                    let full_target = &state.current_full_paths[idx];
+                    let (title_str, content_str, meta_str, is_folder) = match state.mode {
+                        Mode::History => {
+                            let text = full_target.clone();
+                            let char_count = text.chars().count();
+                            let line_count = text.lines().count().max(1);
+                            let byte_count = text.len();
+                            let meta = if byte_count >= 1024 {
+                                format!(
+                                    "{} 文字 / {} 行 ({:.1} KB)",
+                                    char_count,
+                                    line_count,
+                                    byte_count as f32 / 1024.0
+                                )
+                            } else {
+                                format!("{} 文字 / {} 行 ({} B)", char_count, line_count, byte_count)
+                            };
+                            ("履歴プレビュー".to_string(), text, meta, false)
+                        }
+                        Mode::Snippet => {
+                            if full_target == ".." || full_target.starts_with("dir:") {
+                                let folder_name = if full_target == ".." {
+                                    "親フォルダへ移動".to_string()
+                                } else {
+                                    full_target.strip_prefix("dir:").unwrap_or(full_target).to_string()
+                                };
+                                (
+                                    format!("フォルダ: {}", folder_name),
+                                    String::new(),
+                                    "フォルダ".to_string(),
+                                    true,
+                                )
+                            } else if let Some((name, template)) =
+                                state.snippets.iter().find(|(n, _)| n == full_target)
+                            {
+                                let rendered =
+                                    util::render_template(template, &state.current_selection);
+                                let char_count = rendered.chars().count();
+                                let line_count = rendered.lines().count().max(1);
+                                let meta = format!("{} 文字 / {} 行", char_count, line_count);
+                                (name.clone(), rendered, meta, false)
+                            } else {
+                                (
+                                    full_target.clone(),
+                                    String::new(),
+                                    "".to_string(),
+                                    false,
+                                )
+                            }
+                        }
+                    };
+
+                    const MAX_PREVIEW_CHARS: usize = 4000;
+                    let mut body_str = content_str;
+                    if body_str.chars().count() > MAX_PREVIEW_CHARS {
+                        let truncated: String = body_str.chars().take(MAX_PREVIEW_CHARS).collect();
+                        body_str = format!("{}\n\n... (以降省略)", truncated);
+                    }
+
+                    let title_w = util::to_wstring(&title_str);
+                    let content_w = util::to_wstring(&body_str);
+                    let meta_w = util::to_wstring(&meta_str);
+
+                    (
+                        Some(state::PreviewData {
+                            title_w,
+                            content_w,
+                            meta_w,
+                            is_folder,
+                        }),
+                        true,
+                    )
+                } else {
+                    (None, true)
+                }
+            } else {
+                (None, true)
+            }
+        } else {
+            (None, false)
+        }
+    };
+
+    if !is_visible || preview_data.is_none() {
+        if let Some(SafeHWND(hwnd_preview)) = state::PREVIEW_HWND.get() {
+            unsafe { win32::ShowWindow(*hwnd_preview, win32::SW_HIDE) };
+        }
+        return;
+    }
+
+    let data = preview_data.unwrap();
+    if data.is_folder || data.content_w.len() <= 1 {
+        if let Some(SafeHWND(hwnd_preview)) = state::PREVIEW_HWND.get() {
+            unsafe { win32::ShowWindow(*hwnd_preview, win32::SW_HIDE) };
+        }
+        *state::PREVIEW_DATA.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        return;
+    }
+
+    *state::PREVIEW_DATA.lock().unwrap_or_else(|e| e.into_inner()) = Some(data);
+
+    if let (Some(SafeHWND(hwnd_main)), Some(SafeHWND(hwnd_preview))) =
+        (MAIN_HWND.get(), state::PREVIEW_HWND.get())
+    {
+        let scale = unsafe { win32::GetDpiForWindow(*hwnd_main) } as f32 / 96.0;
+        let config_preview_width = state::CONFIG.get().map_or(340.0, |c| c.preview_width);
+        let preview_w = (config_preview_width * scale).round() as i32;
+
+        let mut main_rc: win32::RECT = unsafe { std::mem::zeroed() };
+        unsafe { win32::GetWindowRect(*hwnd_main, &mut main_rc) };
+
+        let main_h = main_rc.bottom - main_rc.top;
+        let preview_h = main_h;
+
+        let gap = (6.0 * scale).round() as i32;
+
+        let h_monitor =
+            unsafe { win32::MonitorFromWindow(*hwnd_main, win32::MONITOR_DEFAULTTONEAREST) };
+        let mut work_rect = win32::RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        if !h_monitor.is_null() {
+            let mut mi: win32::MONITORINFO = unsafe { std::mem::zeroed() };
+            mi.cbSize = std::mem::size_of::<win32::MONITORINFO>() as u32;
+            if unsafe { win32::GetMonitorInfoW(h_monitor, &mut mi) } != 0 {
+                work_rect = mi.rcWork;
+            }
+        }
+
+        // Placement: Try right side first
+        let mut target_x = main_rc.right + gap;
+        if target_x + preview_w > work_rect.right {
+            // Flip to left side
+            target_x = main_rc.left - gap - preview_w;
+        }
+        // Clamp to work_rect bounds
+        if target_x < work_rect.left {
+            target_x = work_rect.left;
+        }
+        if target_x + preview_w > work_rect.right {
+            target_x = work_rect.right - preview_w;
+        }
+
+        let mut target_y = main_rc.top;
+        if target_y + preview_h > work_rect.bottom {
+            target_y = work_rect.bottom - preview_h;
+        }
+        if target_y < work_rect.top {
+            target_y = work_rect.top;
+        }
+
+        unsafe {
+            win32::SetWindowPos(
+                *hwnd_preview,
+                *hwnd_main,
+                target_x,
+                target_y,
+                preview_w,
+                preview_h,
+                win32::SWP_NOACTIVATE | win32::SWP_SHOWWINDOW,
+            );
+            win32::InvalidateRect(*hwnd_preview, std::ptr::null(), 1);
         }
     }
 }
@@ -409,6 +595,12 @@ pub fn delete_selected_items(delete_count: usize) {
             crate::wndproc::update_top_index();
             unsafe {
                 win32::InvalidateRect(*hwnd_listbox, std::ptr::null(), 1);
+            }
+            let cur = unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) } as isize;
+            if cur != win32::LB_ERR {
+                update_preview(Some(cur as usize));
+            } else {
+                update_preview(None);
             }
         }
     }
@@ -715,12 +907,16 @@ pub fn trigger_app(mode: Mode, active_hwnd: win32::HWND) {
             win32::SetFocus(*hwnd_edit);
             win32::ImmAssociateContext(*hwnd_edit, std::ptr::null_mut());
         }
+        state::IS_VISIBLE.store(true, Ordering::Relaxed);
         update_search_cue_banner();
         crate::hook::install_mouse_hook();
+        update_preview(Some(0));
     }
 }
 
 pub fn hide_window() {
+    state::IS_VISIBLE.store(false, Ordering::Relaxed);
+    state::IS_LISTBOX_MOUSE_TRACKING.store(false, Ordering::Relaxed);
     crate::hook::uninstall_mouse_hook();
     let mut last_active = None;
     {
@@ -739,6 +935,10 @@ pub fn hide_window() {
 
     // Restore focus to the last active window
     restore_focus(last_active);
+
+    if let Some(SafeHWND(hwnd_preview)) = state::PREVIEW_HWND.get() {
+        unsafe { win32::ShowWindow(*hwnd_preview, win32::SW_HIDE) };
+    }
 
     if let Some(SafeHWND(hwnd_main)) = MAIN_HWND.get() {
         unsafe { win32::ShowWindow(*hwnd_main, 0) };
@@ -990,6 +1190,19 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("タブを表示する").as_ptr(),
         );
 
+        let is_show_preview = state::SHOW_PREVIEW.load(std::sync::atomic::Ordering::Relaxed);
+        let check_preview_flag = if is_show_preview {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
+        win32::AppendMenuW(
+            menu,
+            check_preview_flag,
+            1015,
+            util::to_wstring("プレビューを表示する").as_ptr(),
+        );
+
         let is_save = state::SAVE_HISTORY_TO_FILE.load(std::sync::atomic::Ordering::Relaxed);
         let check_save_flag = if is_save {
             win32::MF_CHECKED
@@ -1158,6 +1371,31 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                     );
                     win32::InvalidateRect(*hwnd_main, std::ptr::null(), 1);
                 }
+            }
+        }
+    } else if cmd == 1015 {
+        let new_val = !state::SHOW_PREVIEW.load(std::sync::atomic::Ordering::Relaxed);
+        state::SHOW_PREVIEW.store(new_val, std::sync::atomic::Ordering::Relaxed);
+
+        // Update config.toml
+        if let Some(config) = state::CONFIG.get() {
+            let mut new_config = config.clone();
+            new_config.show_preview = new_val;
+            new_config.save();
+        }
+
+        if !new_val {
+            if let Some(SafeHWND(hwnd_preview)) = state::PREVIEW_HWND.get() {
+                unsafe { win32::ShowWindow(*hwnd_preview, win32::SW_HIDE) };
+            }
+        } else {
+            let cur = if let Some(SafeHWND(hwnd_listbox)) = LISTBOX_HWND.get() {
+                (unsafe { win32::SendMessageW(*hwnd_listbox, win32::LB_GETCURSEL, 0, 0) }) as isize
+            } else {
+                win32::LB_ERR
+            };
+            if cur != win32::LB_ERR {
+                update_preview(Some(cur as usize));
             }
         }
     } else if cmd == 1009 {
@@ -1366,10 +1604,7 @@ fn get_icon_path(is_dark: bool) -> Option<String> {
         .clone()
 }
 
-/// Windows Runtime (WinRT) API を用いてトースト通知を送信します。
-/// 送信前に古い Clipper の通知を `RemoveGroup` で即座に全削除し、
-/// 新しい通知をアトミックなシーケンスID付きのユニークなタグで送信します。
-/// 指定秒数経過後、自分のスレッドに対応するタグのみを消去することで競合を防ぎます。
+#[cfg(target_os = "windows")]
 fn show_toast_notification(
     title: &str,
     msg: &str,
@@ -1443,6 +1678,17 @@ fn show_toast_notification(
         }
     }
 
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn show_toast_notification(
+    _title: &str,
+    _msg: &str,
+    _seconds: u64,
+    _sound: bool,
+    _is_error: bool,
+) -> Result<(), ()> {
     Ok(())
 }
 
