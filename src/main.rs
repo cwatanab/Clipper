@@ -195,20 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
-        let mut nid: win32::NOTIFYICONDATAW = std::mem::zeroed();
-        nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
-        nid.hWnd = hwnd;
-        nid.uID = 1;
-        nid.uFlags = win32::NIF_MESSAGE | win32::NIF_ICON | win32::NIF_TIP;
-        nid.uCallbackMessage = win32::WM_TRAYICON;
-        nid.hIcon = app_icon;
-
-        let version = env!("CARGO_PKG_VERSION");
-        let tip_w = util::to_wstring(&format!("Clipper v{}", version));
-        let tip_len = std::cmp::min(tip_w.len(), 127);
-        nid.szTip[..tip_len].copy_from_slice(&tip_w[..tip_len]);
-
-        win32::Shell_NotifyIconW(win32::NIM_ADD, &nid);
+        ui::register_tray_icon(hwnd);
         win32::AddClipboardFormatListener(hwnd);
 
         let hinstance_hook = win32::GetModuleHandleW(std::ptr::null());
@@ -276,7 +263,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             win32::UnhookWindowsHookEx(hook);
         }
         win32::RemoveClipboardFormatListener(hwnd);
-        win32::Shell_NotifyIconW(win32::NIM_DELETE, &nid);
+        ui::unregister_tray_icon(hwnd);
     }
 
     Ok(())

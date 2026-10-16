@@ -155,6 +155,7 @@ pub static SAVE_HISTORY_TO_FILE: AtomicBool = AtomicBool::new(true);
 pub static SHOW_TABS: AtomicBool = AtomicBool::new(true);
 pub static SHOW_PREVIEW: AtomicBool = AtomicBool::new(true);
 pub static LAST_SHOW_TIME: AtomicU32 = AtomicU32::new(0);
+pub static WM_TASKBARCREATED: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Clone, Default)]
 pub struct PreviewData {

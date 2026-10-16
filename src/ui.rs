@@ -1,3 +1,4 @@
+use crate::darkmode;
 use crate::filter;
 use crate::state::{self, EDIT_HWND, LISTBOX_HWND, MAIN_HWND, Mode, SafeHWND, lock_state};
 use crate::util;
@@ -1063,7 +1064,7 @@ pub fn simulate_paste() {
     }
 }
 
-pub fn update_tray_tip_and_icon(hwnd: win32::HWND) {
+pub fn get_tray_tooltip() -> String {
     let (mode, queue_len) = {
         let state_guard = lock_state();
         if let Some(state) = &*state_guard {
@@ -1074,11 +1075,43 @@ pub fn update_tray_tip_and_icon(hwnd: win32::HWND) {
     };
 
     let version = env!("CARGO_PKG_VERSION");
-    let tip_text = match mode {
+    match mode {
         state::FifoLifoMode::None => format!("Clipper v{}", version),
         state::FifoLifoMode::Fifo => format!("Clipper v{} [FIFO: {} items]", version, queue_len),
         state::FifoLifoMode::Lifo => format!("Clipper v{} [LIFO: {} items]", version, queue_len),
-    };
+    }
+}
+
+pub fn register_tray_icon(hwnd: win32::HWND) {
+    let is_sys_dark = darkmode::is_system_dark_mode();
+    let icon_id = if is_sys_dark { 2 } else { 1 };
+    let hinstance = unsafe { win32::GetModuleHandleW(std::ptr::null()) };
+    let app_icon = unsafe { win32::LoadIconW(hinstance, icon_id as *const u16) };
+
+    let tip_text = get_tray_tooltip();
+
+    let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+    nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = win32::NIF_MESSAGE | win32::NIF_ICON | win32::NIF_TIP;
+    nid.uCallbackMessage = win32::WM_TRAYICON;
+    nid.hIcon = app_icon;
+
+    let tip_w = util::to_wstring(&tip_text);
+    let tip_len = std::cmp::min(tip_w.len(), 127);
+    nid.szTip[..tip_len].copy_from_slice(&tip_w[..tip_len]);
+
+    unsafe {
+        let res = win32::Shell_NotifyIconW(win32::NIM_ADD, &nid);
+        if res == 0 {
+            win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid);
+        }
+    }
+}
+
+pub fn update_tray_tip_and_icon(hwnd: win32::HWND) {
+    let tip_text = get_tray_tooltip();
 
     let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
     nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
@@ -1092,6 +1125,17 @@ pub fn update_tray_tip_and_icon(hwnd: win32::HWND) {
 
     unsafe {
         win32::Shell_NotifyIconW(win32::NIM_MODIFY, &nid);
+    }
+}
+
+pub fn unregister_tray_icon(hwnd: win32::HWND) {
+    let mut nid: win32::NOTIFYICONDATAW = unsafe { std::mem::zeroed() };
+    nid.cbSize = std::mem::size_of::<win32::NOTIFYICONDATAW>() as u32;
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+
+    unsafe {
+        win32::Shell_NotifyIconW(win32::NIM_DELETE, &nid);
     }
 }
 

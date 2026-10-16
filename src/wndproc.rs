@@ -961,6 +961,22 @@ pub unsafe extern "system" fn window_proc(
         win32::WM_CREATE => {
             state::log_debug("WM_CREATE message received.");
 
+            // Register TaskbarCreated message for explorer.exe restart recovery
+            let taskbar_msg = unsafe {
+                win32::RegisterWindowMessageW(util::to_wstring("TaskbarCreated").as_ptr())
+            };
+            if taskbar_msg != 0 {
+                state::WM_TASKBARCREATED.store(taskbar_msg, Ordering::Relaxed);
+                unsafe {
+                    win32::ChangeWindowMessageFilterEx(
+                        hwnd,
+                        taskbar_msg,
+                        win32::MSGFLT_ALLOW,
+                        std::ptr::null_mut(),
+                    );
+                }
+            }
+
             // Set rounded corners for Windows 11
             let corner_preference = win32::DWMWCP_ROUND;
             unsafe {
@@ -2470,7 +2486,15 @@ pub unsafe extern "system" fn window_proc(
             }
             unsafe { win32::PostQuitMessage(0) };
         }
-        _ => return unsafe { win32::DefWindowProcW(hwnd, msg, wparam, lparam) },
+        _ => {
+            let taskbar_msg = state::WM_TASKBARCREATED.load(Ordering::Relaxed);
+            if taskbar_msg != 0 && msg == taskbar_msg {
+                state::log_debug("TaskbarCreated received, restoring tray icon.");
+                ui::register_tray_icon(hwnd);
+                return 0;
+            }
+            return unsafe { win32::DefWindowProcW(hwnd, msg, wparam, lparam) };
+        }
     }
     0
 }

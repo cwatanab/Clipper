@@ -367,6 +367,10 @@ mod windows {
 
     pub const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
+    pub const MSGFLT_RESET: u32 = 0;
+    pub const MSGFLT_ALLOW: u32 = 1;
+    pub const MSGFLT_DISALLOW: u32 = 2;
+
     #[link(name = "user32")]
     unsafe extern "system" {
         pub fn GetForegroundWindow() -> HWND;
@@ -521,6 +525,13 @@ mod windows {
             lpTimerFunc: Option<unsafe extern "system" fn(HWND, u32, usize, u32)>,
         ) -> usize;
         pub fn KillTimer(hWnd: HWND, uIDEvent: usize) -> BOOL;
+        pub fn RegisterWindowMessageW(lpString: *const u16) -> u32;
+        pub fn ChangeWindowMessageFilterEx(
+            hWnd: HWND,
+            message: u32,
+            action: u32,
+            pChangeFilterStruct: *mut c_void,
+        ) -> BOOL;
     }
 
     #[link(name = "gdi32")]
@@ -847,6 +858,10 @@ mod windows {
     pub type HBRUSH = *mut std::ffi::c_void;
     pub type BOOL = i32;
     pub type HFONT = *mut std::ffi::c_void;
+
+    pub const MSGFLT_RESET: u32 = 0;
+    pub const MSGFLT_ALLOW: u32 = 1;
+    pub const MSGFLT_DISALLOW: u32 = 2;
 
     pub const VK_CONTROL: u16 = 0;
     pub const VK_V: u16 = 0;
@@ -1202,6 +1217,17 @@ mod windows {
         0
     }
     pub unsafe fn CoUninitialize() {}
+    pub unsafe fn RegisterWindowMessageW(_lp_string: *const u16) -> u32 {
+        0
+    }
+    pub unsafe fn ChangeWindowMessageFilterEx(
+        _hwnd: HWND,
+        _message: u32,
+        _action: u32,
+        _p_change_filter_struct: *mut std::ffi::c_void,
+    ) -> BOOL {
+        1
+    }
 }
 
 pub use windows::*;

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-10-16
+
+### Fixed
+- **explorer.exe 再起動時のタスクトレイアイコン消失の防止**:
+  - Windows Explorer（`explorer.exe`）がクラッシュまたは再起動した際にシェルからブロードキャストされる `TaskbarCreated` ウィンドウメッセージの登録および受信ハンドリングを追加。
+  - 管理者権限プロセスとして実行されている場合でもメッセージがブロックされないよう、UIPI（User Interface Privilege Isolation）設定に `ChangeWindowMessageFilterEx` による許可（`MSGFLT_ALLOW`）を追加。
+  - メッセージ受信時にタスクトレイアイコン（システムダークモード設定や FIFO/LIFO 状態のツールチップ情報を含む）を自動で再登録し、確実にトレイアイコンを復元するよう修正。
+
 ## [0.3.2] - 2026-08-23
 
 ### Added
@@ -131,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.3.3]: https://github.com/cwatanab/Clipper/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/cwatanab/Clipper/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/cwatanab/Clipper/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/cwatanab/Clipper/compare/v0.2.0...v0.3.0
