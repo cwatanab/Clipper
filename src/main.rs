@@ -151,6 +151,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("Failed to create Win32 Window".into());
         }
 
+        if !app_icon.is_null() {
+            win32::SendMessageW(hwnd, win32::WM_SETICON, win32::ICON_BIG as usize, app_icon as win32::LPARAM);
+            win32::SendMessageW(hwnd, win32::WM_SETICON, win32::ICON_SMALL as usize, app_icon as win32::LPARAM);
+        }
+
         let _ = MAIN_HWND.set(SafeHWND(hwnd));
 
         let preview_class_name = util::to_wstring("ClipperPreviewWindowClass");

@@ -245,6 +245,9 @@ mod windows {
     pub const WM_CREATE: u32 = 0x0001;
     pub const WM_DESTROY: u32 = 0x0002;
     pub const WM_SETFONT: u32 = 0x0030;
+    pub const WM_SETICON: u32 = 0x0080;
+    pub const ICON_SMALL: u32 = 0;
+    pub const ICON_BIG: u32 = 1;
     pub const WM_ACTIVATE: u32 = 0x0006;
     pub const WM_MOUSEACTIVATE: u32 = 0x0021;
     pub const MA_NOACTIVATE: isize = 3;
@@ -858,6 +861,95 @@ mod windows {
     pub type HBRUSH = *mut std::ffi::c_void;
     pub type BOOL = i32;
     pub type HFONT = *mut std::ffi::c_void;
+    pub type HMENU = *mut std::ffi::c_void;
+    pub type HHOOK = *mut std::ffi::c_void;
+    pub type HINSTANCE = *mut std::ffi::c_void;
+    pub type HDC = usize;
+    pub type HGDIOBJ = *mut std::ffi::c_void;
+    pub type HCURSOR = *mut std::ffi::c_void;
+    pub type LRESULT = isize;
+    pub type WPARAM = usize;
+    pub type LPARAM = isize;
+    pub type LONG_PTR = isize;
+    pub type HOOKPROC = Option<unsafe extern "system" fn(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT>;
+    pub type WNDPROC = Option<unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT>;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct WNDCLASSW {
+        pub style: u32,
+        pub lpfnWndProc: WNDPROC,
+        pub cbClsExtra: i32,
+        pub cbWndExtra: i32,
+        pub hInstance: HINSTANCE,
+        pub hIcon: *mut std::ffi::c_void,
+        pub hCursor: HCURSOR,
+        pub hbrBackground: HBRUSH,
+        pub lpszMenuName: *const u16,
+        pub lpszClassName: *const u16,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    pub struct MSG {
+        pub hwnd: HWND,
+        pub message: u32,
+        pub wparam: WPARAM,
+        pub lparam: LPARAM,
+        pub time: u32,
+        pub pt: POINT,
+    }
+
+    pub const WS_EX_TOPMOST: u32 = 0;
+    pub const WS_EX_TOOLWINDOW: u32 = 0;
+    pub const WS_POPUP: u32 = 0;
+    pub const WS_CLIPCHILDREN: u32 = 0;
+    pub const WH_KEYBOARD_LL: i32 = 0;
+    pub const WM_KEYDOWN: u32 = 0;
+    pub const WM_SYSKEYDOWN: u32 = 0;
+    pub const LB_SETCURSEL: u32 = 0;
+    pub const WM_SETICON: u32 = 0;
+    pub const ICON_SMALL: u32 = 0;
+    pub const ICON_BIG: u32 = 1;
+    pub const COINIT_APARTMENTTHREADED: u32 = 0;
+
+    pub unsafe fn RegisterClassW(_lpWndClass: *const WNDCLASSW) -> u16 { 0 }
+    pub unsafe fn CreateWindowExW(
+        _dwExStyle: u32,
+        _lpClassName: *const u16,
+        _lpWindowName: *const u16,
+        _dwStyle: u32,
+        _x: i32,
+        _y: i32,
+        _nWidth: i32,
+        _nHeight: i32,
+        _hWndParent: HWND,
+        _hMenu: HMENU,
+        _hInstance: HINSTANCE,
+        _lpParam: *mut std::ffi::c_void,
+    ) -> HWND { std::ptr::null_mut() }
+    pub unsafe fn GetModuleHandleW(_lpModuleName: *const u16) -> HINSTANCE { std::ptr::null_mut() }
+    pub unsafe fn SetWindowsHookExW(
+        _idHook: i32,
+        _lpfn: HOOKPROC,
+        _hmod: HINSTANCE,
+        _dwThreadId: u32,
+    ) -> HHOOK { std::ptr::null_mut() }
+    pub unsafe fn UnhookWindowsHookEx(_hhk: HHOOK) -> BOOL { 1 }
+    pub unsafe fn GetMessageW(
+        _lpMsg: *mut MSG,
+        _hWnd: HWND,
+        _wMsgFilterMin: u32,
+        _wMsgFilterMax: u32,
+    ) -> BOOL { 0 }
+    pub unsafe fn TranslateMessage(_lpMsg: *const MSG) -> BOOL { 1 }
+    pub unsafe fn DispatchMessageW(_lpMsg: *const MSG) -> LRESULT { 0 }
+    pub unsafe fn SendMessageW(
+        _hWnd: HWND,
+        _Msg: u32,
+        _wParam: WPARAM,
+        _lParam: LPARAM,
+    ) -> LRESULT { 0 }
 
     pub const MSGFLT_RESET: u32 = 0;
     pub const MSGFLT_ALLOW: u32 = 1;
@@ -964,9 +1056,18 @@ mod windows {
     pub unsafe fn SendInput(_c_inputs: u32, _p_inputs: *const INPUT, _cb_size: i32) -> u32 {
         0
     }
-    pub unsafe fn IsDialogMessageW(_hDlg: HWND, _lpMsg: *const std::ffi::c_void) -> i32 {
+    pub unsafe fn IsDialogMessageW(_hDlg: HWND, _lpMsg: *const MSG) -> i32 {
         0
     }
+    pub const CS_HREDRAW: u32 = 0;
+    pub const CS_VREDRAW: u32 = 0;
+    pub const IDC_ARROW: *const u16 = std::ptr::null();
+    pub unsafe fn LoadIconW(_hInstance: HINSTANCE, _lpIconName: *const u16) -> *mut std::ffi::c_void { std::ptr::null_mut() }
+    pub unsafe fn LoadCursorW(_hInstance: HINSTANCE, _lpCursorName: *const u16) -> HCURSOR { std::ptr::null_mut() }
+    pub unsafe fn LineTo(_hdc: HDC, _x: i32, _y: i32) -> BOOL { 1 }
+    pub unsafe fn MoveToEx(_hdc: HDC, _x: i32, _y: i32, _lppt: *mut POINT) -> BOOL { 1 }
+    pub unsafe fn SelectObject(_hdc: HDC, _h: HGDIOBJ) -> HGDIOBJ { std::ptr::null_mut() }
+    pub unsafe fn DeleteObject(_ho: HGDIOBJ) -> BOOL { 1 }
     pub unsafe fn GetSysColorBrush(_n_index: i32) -> HBRUSH {
         std::ptr::null_mut()
     }
