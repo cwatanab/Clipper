@@ -1,0 +1,6 @@
+# AVX2前提の最適化設定
+# x86-64-v3: AVX, AVX2, BMI1, BMI2, F16C, FMA, LZCNT, MOVBE をすべて有効化
+[target.'cfg(target_arch = "x86_64")']
+rustflags = [
+    "-C", "target-cpu=x86-64-v3",
+]
