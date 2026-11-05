@@ -52,7 +52,7 @@ const DARK_THEME: ThemeColors = ThemeColors {
     dim_text_color: 0x009D9898, // Secondary muted (RGB: 152, 152, 157)
     sel_bg: 0x00FF840A,         // iOS Blue (RGB: 10, 132, 255)
     sel_text: 0x00FFFFFF,       // White text for selection
-    border_color: 0x003A3838,   // Subtle dark border (RGB: 56, 56, 58)
+    border_color: 0x005A5555,   // Modern visible dark border (RGB: 85, 85, 90)
 };
 
 const SHORTCUT_CHARS: &[char] = &[
