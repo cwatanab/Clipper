@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-05
+
+### Added
+- **JIS配列上のUSキーボード記号エミュレーション（ULE4JIS機能の統合）**:
+  - 日本語版Windows環境において、JIS配列ドライバのままUS配列キーボードの記号（`@`, `^`, `&`, `*`, `(`, `)`, `_`, `=`, `+`, `` ` ``, `~`, `[`, `]`, `{`, `}`, `:`, `'`, `"`, `\`, `|` 等全22通り）を正しいキー位置で入力可能にするエミュレーション機能を内蔵。
+  - Clipper 既存の低レベルキーボードフック（`WH_KEYBOARD_LL`）とシームレスに統合し、無効時のオーバーヘッドはゼロ（アトミックフラグ判定のみ）。
+  - タスクトレイメニューからワンクリックで「US配列エミュレーション」の有効/無効を即座に切り替え可能。
+  - 設定ファイル（`config.toml`）での初期設定（`enable_us_layout = false`）および入力送出方式の選択（`us_layout_backend = "send_input"` または `"keybd_event"`）に対応。
+- **アプリアイコンのデザイン刷新 & マルチサイズ化**:
+  - クリップボードとチェックリストのモチーフ・シルエットを継承しつつ、高コントラストで視認性の高いモダンベクターアイコンへリニューアル。
+  - 16x16, 24x24, 32x32, 48x48, 64x64, 128x128, 256x256 の各解像度を最適化したマルチサイズ ICO ファイルを生成。
+  - システムダークモード時のタスクトレイ表示に合わせたハイコントラストアイコン（`app_inverted.ico`）も刷新。
+
 ## [0.3.4] - 2026-11-05
 
 ### Fixed
@@ -156,6 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.4.0]: https://github.com/cwatanab/Clipper/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/cwatanab/Clipper/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/cwatanab/Clipper/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/cwatanab/Clipper/compare/v0.3.1...v0.3.2

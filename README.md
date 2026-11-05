@@ -33,6 +33,9 @@
 - 🔒 **DPAPI（暗号化）による安全な履歴保存**
   - クリップボード履歴は `%APPDATA%\Clipper\history.dat` に自動保存されます。
   - データは Windows 標準のセキュリティAPI（DPAPI）で自動暗号化されるため、PC内のパスワードや個人情報も安全に保護されます。
+- ⌨️ **JIS配列上のUSキーボード記号エミュレーション**
+  - 日本語版 Windows で JIS 配列ドライバが適用されている環境下でも、US 配列キーボードの記号（`@`, `^`, `&`, `*`, `(`, `)`, `_`, `=`, `+`, `` ` ``, `~`, `[`, `]`, `{`, `}`, `:`, `'`, `"`, `\`, `|` 等）を正しい位置で入力可能。
+  - トレイメニューからいつでも瞬時に ON/OFF を切り替えられます（デフォルトは OFF）。入力方式は `SendInput` および `keybd_event` に対応。
 
 ---
 
@@ -84,6 +87,8 @@ notification_sound = false  # トースト通知時のサウンドの有無 (tru
 show_tabs = true            # タブバー（履歴・スニペット切替）を表示するかどうか (true/false)
 show_preview = true         # プレビューポップアップを表示するかどうか (true/false)
 preview_width = 340.0       # プレビューポップアップの基準幅 (px)
+enable_us_layout = false    # US配列記号エミュレーションを有効にするかどうか (true/false)
+us_layout_backend = "send_input" # エミュレーションの入力方式 ("send_input" または "keybd_event")
 ```
 
 - **`exclude_apps`** (オプション): クリップボード履歴の収集対象から除外する実行ファイル名のリスト。

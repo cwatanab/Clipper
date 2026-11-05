@@ -13,6 +13,7 @@ mod windows {
     pub type HGDIOBJ = *mut c_void;
     pub type HFONT = *mut c_void;
     pub type HCURSOR = *mut c_void;
+    pub type HKL = *mut c_void;
     pub type BOOL = i32;
     pub type LRESULT = isize;
     pub type WPARAM = usize;
@@ -209,8 +210,43 @@ mod windows {
     pub const VK_V: u16 = 0x56;
     pub const VK_C: u16 = 0x43;
 
+    pub const VK_CANCEL: u16 = 0x03;
+    pub const VK_PRIOR: u16 = 0x21;
+    pub const VK_NEXT: u16 = 0x22;
+    pub const VK_END: u16 = 0x23;
+    pub const VK_HOME: u16 = 0x24;
+    pub const VK_LEFT: u16 = 0x25;
+    pub const VK_UP: u16 = 0x26;
+    pub const VK_RIGHT: u16 = 0x27;
+    pub const VK_DOWN: u16 = 0x28;
+    pub const VK_SNAPSHOT: u16 = 0x2C;
+    pub const VK_INSERT: u16 = 0x2D;
+    pub const VK_DELETE: u16 = 0x2E;
+    pub const VK_DIVIDE: u16 = 0x6F;
+    pub const VK_NUMLOCK: u16 = 0x90;
+
+    pub const VK_OEM_1: u16 = 0xBA;
+    pub const VK_OEM_PLUS: u16 = 0xBB;
+    pub const VK_OEM_COMMA: u16 = 0xBC;
+    pub const VK_OEM_MINUS: u16 = 0xBD;
+    pub const VK_OEM_PERIOD: u16 = 0xBE;
+    pub const VK_OEM_2: u16 = 0xBF;
+    pub const VK_OEM_3: u16 = 0xC0;
+    pub const VK_OEM_4: u16 = 0xDB;
+    pub const VK_OEM_5: u16 = 0xDC;
+    pub const VK_OEM_6: u16 = 0xDD;
+    pub const VK_OEM_7: u16 = 0xDE;
+    pub const VK_OEM_8: u16 = 0xDF;
+    pub const VK_OEM_102: u16 = 0xE2;
+    pub const VK_OEM_AUTO: u8 = 0xF3;
+    pub const VK_OEM_ENLW: u8 = 0xF4;
+
     pub const INPUT_KEYBOARD: u32 = 1;
-    pub const KEYEVENTF_KEYUP: u32 = 2;
+    pub const KEYEVENTF_EXTENDEDKEY: u32 = 0x0001;
+    pub const KEYEVENTF_KEYUP: u32 = 0x0002;
+    pub const KEYEVENTF_SCANCODE: u32 = 0x0008;
+
+    pub const MAPVK_VK_TO_VSC_EX: u32 = 4;
 
     pub const CS_HREDRAW: u32 = 2;
     pub const CS_VREDRAW: u32 = 1;
@@ -405,6 +441,9 @@ mod windows {
         pub fn TranslateMessage(lp_msg: *const MSG) -> BOOL;
         pub fn DispatchMessageW(lp_msg: *const MSG) -> LRESULT;
         pub fn SendInput(c_inputs: u32, p_inputs: *const INPUT, cb_size: i32) -> u32;
+        pub fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
+        pub fn MapVirtualKeyExW(uCode: u32, uMapType: u32, dwhkl: HKL) -> u32;
+        pub fn GetKeyboardLayout(idThread: u32) -> HKL;
         pub fn RegisterClassW(lpWndClass: *const WNDCLASSW) -> u16;
         pub fn CreateWindowExW(
             dwExStyle: u32,
@@ -867,6 +906,7 @@ mod windows {
     pub type HDC = usize;
     pub type HGDIOBJ = *mut std::ffi::c_void;
     pub type HCURSOR = *mut std::ffi::c_void;
+    pub type HKL = *mut std::ffi::c_void;
     pub type LRESULT = isize;
     pub type WPARAM = usize;
     pub type LPARAM = isize;
@@ -913,6 +953,51 @@ mod windows {
     pub const ICON_BIG: u32 = 1;
     pub const COINIT_APARTMENTTHREADED: u32 = 0;
 
+    pub const VK_SHIFT: u16 = 0x10;
+    pub const VK_CONTROL: u16 = 0x11;
+    pub const VK_MENU: u16 = 0x12;
+    pub const VK_LSHIFT: u16 = 0xA0;
+    pub const VK_RSHIFT: u16 = 0xA1;
+    pub const VK_LCONTROL: u16 = 0xA2;
+    pub const VK_RCONTROL: u16 = 0xA3;
+    pub const VK_LMENU: u16 = 0xA4;
+    pub const VK_RMENU: u16 = 0xA5;
+
+    pub const VK_CANCEL: u16 = 0x03;
+    pub const VK_PRIOR: u16 = 0x21;
+    pub const VK_NEXT: u16 = 0x22;
+    pub const VK_END: u16 = 0x23;
+    pub const VK_HOME: u16 = 0x24;
+    pub const VK_LEFT: u16 = 0x25;
+    pub const VK_UP: u16 = 0x26;
+    pub const VK_RIGHT: u16 = 0x27;
+    pub const VK_DOWN: u16 = 0x28;
+    pub const VK_SNAPSHOT: u16 = 0x2C;
+    pub const VK_INSERT: u16 = 0x2D;
+    pub const VK_DELETE: u16 = 0x2E;
+    pub const VK_DIVIDE: u16 = 0x6F;
+    pub const VK_NUMLOCK: u16 = 0x90;
+
+    pub const VK_OEM_1: u16 = 0xBA;
+    pub const VK_OEM_PLUS: u16 = 0xBB;
+    pub const VK_OEM_COMMA: u16 = 0xBC;
+    pub const VK_OEM_MINUS: u16 = 0xBD;
+    pub const VK_OEM_PERIOD: u16 = 0xBE;
+    pub const VK_OEM_2: u16 = 0xBF;
+    pub const VK_OEM_3: u16 = 0xC0;
+    pub const VK_OEM_4: u16 = 0xDB;
+    pub const VK_OEM_5: u16 = 0xDC;
+    pub const VK_OEM_6: u16 = 0xDD;
+    pub const VK_OEM_7: u16 = 0xDE;
+    pub const VK_OEM_8: u16 = 0xDF;
+    pub const VK_OEM_102: u16 = 0xE2;
+    pub const VK_OEM_AUTO: u8 = 0xF3;
+    pub const VK_OEM_ENLW: u8 = 0xF4;
+
+    pub const KEYEVENTF_EXTENDEDKEY: u32 = 0x0001;
+    pub const KEYEVENTF_SCANCODE: u32 = 0x0008;
+    pub const MAPVK_VK_TO_VSC_EX: u32 = 4;
+
     pub unsafe fn RegisterClassW(_lpWndClass: *const WNDCLASSW) -> u16 { 0 }
     pub unsafe fn CreateWindowExW(
         _dwExStyle: u32,
@@ -955,7 +1040,6 @@ mod windows {
     pub const MSGFLT_ALLOW: u32 = 1;
     pub const MSGFLT_DISALLOW: u32 = 2;
 
-    pub const VK_CONTROL: u16 = 0;
     pub const VK_V: u16 = 0;
     pub const KEYEVENTF_KEYUP: u32 = 0;
     pub const INPUT_KEYBOARD: u32 = 0;
@@ -1055,6 +1139,13 @@ mod windows {
     }
     pub unsafe fn SendInput(_c_inputs: u32, _p_inputs: *const INPUT, _cb_size: i32) -> u32 {
         0
+    }
+    pub unsafe fn keybd_event(_bVk: u8, _bScan: u8, _dwFlags: u32, _dwExtraInfo: usize) {}
+    pub unsafe fn MapVirtualKeyExW(_uCode: u32, _uMapType: u32, _dwhkl: HKL) -> u32 {
+        0
+    }
+    pub unsafe fn GetKeyboardLayout(_idThread: u32) -> HKL {
+        std::ptr::null_mut()
     }
     pub unsafe fn IsDialogMessageW(_hDlg: HWND, _lpMsg: *const MSG) -> i32 {
         0

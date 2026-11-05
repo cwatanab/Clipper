@@ -17,6 +17,17 @@ pub unsafe extern "system" fn keyboard_hook_proc(
     if code >= 0 {
         let kbd = unsafe { *(lparam as *const win32::KBDLLHOOKSTRUCT) };
         let vk = kbd.vk_code as u16;
+
+        let is_up = wparam == win32::WM_KEYUP as win32::WPARAM
+            || wparam == win32::WM_SYSKEYUP as win32::WPARAM;
+        let is_down = wparam == win32::WM_KEYDOWN as win32::WPARAM
+            || wparam == win32::WM_SYSKEYDOWN as win32::WPARAM;
+
+        // USキーボード記号エミュレーション
+        if (is_up || is_down) && crate::ule4jis::process_hook_key(vk as u8, is_up, kbd.dw_extra_info) {
+            return 1;
+        }
+
         let now_time = if kbd.time == 0 {
             unsafe { win32::GetTickCount() }
         } else {

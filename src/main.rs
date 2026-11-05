@@ -7,6 +7,7 @@ mod filter;
 mod hook;
 mod state;
 mod ui;
+mod ule4jis;
 mod util;
 mod win32;
 mod wndproc;
@@ -60,6 +61,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     state::SHOW_TABS.store(config.show_tabs, std::sync::atomic::Ordering::Relaxed);
     state::SHOW_PREVIEW.store(config.show_preview, std::sync::atomic::Ordering::Relaxed);
     state::update_hook_config(&config);
+    let backend = match config.us_layout_backend.to_lowercase().as_str() {
+        "keybd_event" => ule4jis::InputBackend::KeybdEvent,
+        _ => ule4jis::InputBackend::SendInput,
+    };
+    ule4jis::init(config.enable_us_layout, backend);
+
     let _ = state::CONFIG.set(config);
 
     state::init_history_saver();
