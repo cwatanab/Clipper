@@ -1260,6 +1260,19 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             util::to_wstring("履歴をファイルに保存する").as_ptr(),
         );
 
+        let is_us_layout = crate::ule4jis::is_enabled();
+        let check_us_layout_flag = if is_us_layout {
+            win32::MF_CHECKED
+        } else {
+            win32::MF_UNCHECKED
+        };
+        win32::AppendMenuW(
+            menu,
+            check_us_layout_flag,
+            1016,
+            util::to_wstring("US配列エミュレーション").as_ptr(),
+        );
+
         win32::AppendMenuW(
             menu,
             0,
@@ -1344,6 +1357,9 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
             ・Ctrl+Shift+L: LIFOモードのON/OFF\n\
             ・Ctrl+Shift+C: キューのクリアと終了\n\n\
             ※モード中にコピーすると自動的にキューに蓄積され、Ctrl+Vで順次ペーストできます。\n\n\
+            【US配列エミュレーション】\n\
+            ・JIS配列設定のWindowsでUS配列キーボードの記号入力をエミュレートします。\n\
+            ・トレイメニューからいつでもON/OFFを切り替えられます。\n\n\
             ・候補選択: ↑ / ↓ または Ctrl+P / Ctrl+N\n\
             ・自動ペースト: Enterキー\n\
             ・閉じる: Escキー または ウィンドウ外をクリック",
@@ -1442,6 +1458,19 @@ pub fn show_tray_menu(hwnd: win32::HWND) {
                 update_preview(Some(cur as usize));
             }
         }
+    } else if cmd == 1016 {
+        let new_val = crate::ule4jis::toggle_enabled();
+        if let Some(config) = state::CONFIG.get() {
+            let mut new_config = config.clone();
+            new_config.enable_us_layout = new_val;
+            new_config.save();
+        }
+        let msg = if new_val {
+            "US配列エミュレーションを有効にしました"
+        } else {
+            "US配列エミュレーションを無効にしました"
+        };
+        show_notification("Clipper", msg, false);
     } else if cmd == 1009 {
         let title_w = util::to_wstring("Clipper");
         let question_w = util::to_wstring(

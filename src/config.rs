@@ -51,6 +51,12 @@ pub struct Config {
     /// プレビューポップアップの基準幅（px）
     #[serde(default = "default_preview_width")]
     pub preview_width: f32,
+    /// US配列記号エミュレーションを有効にするかどうか
+    #[serde(default = "default_enable_us_layout")]
+    pub enable_us_layout: bool,
+    /// US配列エミュレーションの入力バックエンド ("send_input" または "keybd_event")
+    #[serde(default = "default_us_layout_backend")]
+    pub us_layout_backend: String,
 }
 
 fn default_max_history() -> usize {
@@ -124,6 +130,16 @@ fn default_show_tabs() -> bool {
     true
 }
 
+/// US配列エミュレーションのデフォルト値 (false)
+fn default_enable_us_layout() -> bool {
+    false
+}
+
+/// US配列エミュレーション入力方式のデフォルト値 ("send_input")
+fn default_us_layout_backend() -> String {
+    "send_input".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -144,6 +160,8 @@ impl Default for Config {
             show_tabs: true,
             show_preview: true,
             preview_width: 340.0,
+            enable_us_layout: false,
+            us_layout_backend: "send_input".to_string(),
         }
     }
 }
@@ -207,6 +225,8 @@ mod tests {
         assert_eq!(config.show_tabs, true);
         assert_eq!(config.show_preview, true);
         assert_eq!(config.preview_width, 340.0);
+        assert_eq!(config.enable_us_layout, false);
+        assert_eq!(config.us_layout_backend, "send_input");
     }
 
     #[test]
@@ -229,6 +249,8 @@ mod tests {
             show_tabs = false
             show_preview = false
             preview_width = 400.0
+            enable_us_layout = true
+            us_layout_backend = "keybd_event"
         "#;
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.font_name, "Segoe UI");
@@ -248,6 +270,8 @@ mod tests {
         assert_eq!(config.show_tabs, false);
         assert_eq!(config.show_preview, false);
         assert_eq!(config.preview_width, 400.0);
+        assert_eq!(config.enable_us_layout, true);
+        assert_eq!(config.us_layout_backend, "keybd_event");
     }
 
     #[test]
