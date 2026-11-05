@@ -1668,9 +1668,15 @@ pub unsafe extern "system" fn window_proc(
                 let icon_size = (16.0 * scale) as i32;
                 let icon_x = rc.left + key_total_left + (6.0 * scale) as i32;
                 let icon_y = rc.top + (rc.bottom - rc.top - icon_size) / 2;
-                // Use dim color for non-selected icons, accent color when selected
+                // Use warm folder color for folder icons when not selected, accent color when selected
                 let icon_color = if selected {
                     colors.sel_text
+                } else if icon_type == IconType::Folder || icon_type == IconType::ParentFolder {
+                    if is_dark {
+                        0x003CB4F5 // Warm amber gold in dark mode (RGB: 245, 180, 60)
+                    } else {
+                        0x00239BE6 // Warm folder gold in light mode (RGB: 230, 155, 35)
+                    }
                 } else {
                     colors.dim_text_color
                 };
@@ -2550,8 +2556,8 @@ pub fn draw_vector_icon(
 
                 let glyph_char = match icon_type {
                     IconType::Search => 0xE721u16,       // Search (🔍)
-                    IconType::Folder => 0xE8D5u16,       // Folder (📁, filled)
-                    IconType::ParentFolder => 0xE10Eu16, // FolderParent / Up (↩/⬆)
+                    IconType::Folder => 0xED25u16,       // OpenFolderHorizontal (📂)
+                    IconType::ParentFolder => 0xE8DAu16, // OpenLocal / FolderUp (📁⬆)
                     IconType::Snippet => 0xE7C3u16,      // Document (📄)
                     IconType::History => 0xE77Fu16,      // Clipboard (📋)
                     IconType::ChevronRight => 0xE974u16, // ChevronRight (＞)
@@ -2602,40 +2608,22 @@ pub fn draw_vector_icon(
                     win32::LineTo(hdc, x + s(19.0), y + s(17.0));
                 }
                 IconType::Folder => {
-                    win32::MoveToEx(hdc, x + s(4.0), y + s(9.0), std::ptr::null_mut());
-                    win32::LineTo(hdc, x + s(4.0), y + s(6.0));
-                    win32::LineTo(hdc, x + s(9.0), y + s(6.0));
-                    win32::LineTo(hdc, x + s(11.0), y + s(9.0));
-                    win32::RoundRect(
-                        hdc,
-                        x + s(4.0),
-                        y + s(9.0),
-                        x + s(20.0),
-                        y + s(19.0),
-                        s(2.0),
-                        s(2.0),
-                    );
+                    // Cute open-folder fallback with rounded corners and open front lip
+                    win32::RoundRect(hdc, x + s(4.0), y + s(5.0), x + s(12.0), y + s(10.0), s(2.0), s(2.0));
+                    win32::RoundRect(hdc, x + s(3.0), y + s(8.0), x + s(21.0), y + s(19.0), s(4.0), s(4.0));
+                    win32::MoveToEx(hdc, x + s(4.0), y + s(12.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(20.0), y + s(12.0));
                 }
                 IconType::ParentFolder => {
-                    win32::MoveToEx(hdc, x + s(4.0), y + s(9.0), std::ptr::null_mut());
-                    win32::LineTo(hdc, x + s(4.0), y + s(6.0));
-                    win32::LineTo(hdc, x + s(9.0), y + s(6.0));
-                    win32::LineTo(hdc, x + s(11.0), y + s(9.0));
-                    win32::RoundRect(
-                        hdc,
-                        x + s(4.0),
-                        y + s(9.0),
-                        x + s(20.0),
-                        y + s(19.0),
-                        s(2.0),
-                        s(2.0),
-                    );
-                    win32::MoveToEx(hdc, x + s(12.0), y + s(11.0), std::ptr::null_mut());
+                    // Cute folder-up fallback with rounded body and upward arrow
+                    win32::RoundRect(hdc, x + s(4.0), y + s(5.0), x + s(12.0), y + s(10.0), s(2.0), s(2.0));
+                    win32::RoundRect(hdc, x + s(3.0), y + s(8.0), x + s(21.0), y + s(19.0), s(4.0), s(4.0));
+                    win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
                     win32::LineTo(hdc, x + s(12.0), y + s(17.0));
-                    win32::MoveToEx(hdc, x + s(12.0), y + s(11.0), std::ptr::null_mut());
-                    win32::LineTo(hdc, x + s(9.0), y + s(14.0));
-                    win32::MoveToEx(hdc, x + s(12.0), y + s(11.0), std::ptr::null_mut());
-                    win32::LineTo(hdc, x + s(15.0), y + s(14.0));
+                    win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(8.0), y + s(14.0));
+                    win32::MoveToEx(hdc, x + s(12.0), y + s(10.0), std::ptr::null_mut());
+                    win32::LineTo(hdc, x + s(16.0), y + s(14.0));
                 }
                 IconType::Snippet => {
                     win32::MoveToEx(hdc, x + s(6.0), y + s(2.0), std::ptr::null_mut());

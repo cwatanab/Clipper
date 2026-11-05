@@ -260,7 +260,7 @@ pub fn update_preview(index_opt: Option<usize>) {
                                     full_target.strip_prefix("dir:").unwrap_or(full_target).to_string()
                                 };
                                 (
-                                    format!("フォルダ: {}", folder_name),
+                                    format!("📂 {}", folder_name),
                                     String::new(),
                                     "フォルダ".to_string(),
                                     true,
