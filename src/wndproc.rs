@@ -73,7 +73,7 @@ pub fn layout_child_controls(_hwnd: win32::HWND, cw: i32, _ch: i32, scale: f32) 
 
         let edit_y = m.edit_container_y + (m.edit_container_h - m.edit_h) / 2;
         let edit_x = m.margin + (28.0 * scale).round() as i32; // margin + icon area
-        let edit_w = listbox_w - (60.0 * scale).round() as i32; // Align right edge with space for clear button
+        let edit_w = (listbox_w - (56.0 * scale).round() as i32).max(10); // Align right edge with space for clear button
 
         unsafe {
             win32::MoveWindow(*hwnd_edit, edit_x, edit_y, edit_w, m.edit_h, 1);
@@ -297,12 +297,11 @@ pub fn update_theme_resources_with_scale(hwnd: win32::HWND, is_dark: bool, scale
             );
 
             // Add padding to edit box (margin left and right)
-            let margin_scaled = m.margin;
             win32::SendMessageW(
                 *hwnd_edit,
                 EM_SETMARGINS,
                 EC_LEFTMARGIN | EC_RIGHTMARGIN,
-                (margin_scaled | (margin_scaled << 16)) as win32::LPARAM,
+                0,
             );
 
             // Set text placeholder (Cue Banner)
@@ -486,9 +485,12 @@ pub unsafe extern "system" fn edit_subclass_proc(
                 return 0;
             }
             46 => {
-                let repeat_count = (lparam & 0xFFFF) as usize;
-                ui::delete_selected_items(repeat_count);
-                return 0;
+                let len = unsafe { win32::GetWindowTextLengthW(hwnd) };
+                if len == 0 {
+                    let repeat_count = (lparam & 0xFFFF) as usize;
+                    ui::delete_selected_items(repeat_count);
+                    return 0;
+                }
             }
             8 => {
                 // Backspace
@@ -1777,7 +1779,6 @@ pub unsafe extern "system" fn window_proc(
 
             let m = crate::ui::UiMetrics::get(scale);
             let margin = m.margin;
-            let gap_x = (2.0 * scale).round() as i32;
             let tab_bar_h = m.tab_bar_h;
             let edit_container_h = m.edit_container_h;
 
@@ -1939,9 +1940,9 @@ pub unsafe extern "system" fn window_proc(
 
             let edit_container_y = m.edit_container_y;
             let container_rc = win32::RECT {
-                left: margin + gap_x,
+                left: margin,
                 top: edit_container_y,
-                right: margin + listbox_w - gap_x,
+                right: margin + listbox_w,
                 bottom: edit_container_y + edit_container_h,
             };
 
@@ -1983,8 +1984,8 @@ pub unsafe extern "system" fn window_proc(
 
             // Draw the 🔍 search icon inside the container using native vector drawing
             let icon_color = colors.dim_text_color;
-            let icon_size = (18.0 * scale) as i32;
-            let icon_margin_left = (6.0 * scale) as i32;
+            let icon_size = (16.0 * scale).round() as i32;
+            let icon_margin_left = (8.0 * scale).round() as i32;
             draw_vector_icon(
                 hdc,
                 IconType::Search,
@@ -2003,8 +2004,8 @@ pub unsafe extern "system" fn window_proc(
                 }
             };
             if has_text {
-                let clear_icon_size = (16.0 * scale) as i32;
-                let clear_icon_x = margin + listbox_w - (30.0 * scale) as i32;
+                let clear_icon_size = (16.0 * scale).round() as i32;
+                let clear_icon_x = margin + listbox_w - (25.0 * scale).round() as i32;
                 let clear_icon_y = edit_container_y + (edit_container_h - clear_icon_size) / 2;
                 draw_vector_icon(
                     hdc,

@@ -31,7 +31,7 @@ impl UiMetrics {
         let tab_bar_h = if show_tabs { (28.0 * scale).round() as i32 } else { 0 };
         let gap = (4.0 * scale).round() as i32;
         let edit_container_h = (34.0 * scale).round() as i32;
-        let edit_h = (26.0 * scale).round() as i32;
+        let edit_h = (20.0 * scale).round() as i32;
         let item_h = (26.0 * scale).round() as i32;
 
         let edit_container_y = if show_tabs {

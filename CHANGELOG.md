@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-11-05
+
+### Fixed
+- **Migemo 検索の不具合解消**:
+  - `rustmigemo` の `TernaryRegexGenerator` において同一接頭辞配下の単語終端フラグが欠落し、「日本」などの基本単語がマッチしなくなる問題を修正するため、終端ノードを正しくオプショナル正規表現グループ（`(?:...)?`）として展開する `TrieRegexGenerator` を実装。
+  - Migemo 展開対象を2文字以上の英字トークンに限定し、単一文字入力時の極端な正規表現長爆発を防止。
+- **全角・半角および複数キーワード検索の改善**:
+  - 全角・半角の正規化および大文字ローマ字入力の小文字化に対応。
+  - 履歴検索および定型文（階層フォルダを含む再帰検索）において、スペース区切りの複数キーワードによる AND 検索を正確に行えるよう改善。
+- **UI 表示・レイアウトの整理**:
+  - 検索結果リストボックス内の履歴アイテム先頭に付与されていた `[HIST]` プレフィックスを削除。
+  - 履歴および定型文アイテムにおいて、ショートカットキー番号（`[1]`, `[2]` など）の右側に表示されていた冗長なアイコンを非表示化（フォルダ行のみフォルダアイコンを維持）。
+  - 単一行 EDIT コントロールの描画特性に合わせてエディットボックス高さをフォント描画高さに適合させ、入力枠内の垂直中央（上下均等マージン）に正確に配置。
+  - キーワード入力枠の左右境界をタブバーおよびリストボックスの境界線と水平方向に一致させ、内部の検索アイコン（🔍）およびクリアボタン（✕）をテキストの垂直中心線と揃えて配置。
+- **ウィンドウアイコンの設定**:
+  - メインウィンドウ作成時に `WM_SETICON` を送出し、タスクバーやウィンドウにアプリアイコンが確実に反映されるよう修正。
+
 ## [0.3.3] - 2026-10-16
 
 ### Fixed
@@ -139,6 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 定型文呼び出しおよび履歴呼び出しのデフォルトホットキーを、それぞれ左の `Shift` キーおよび `Ctrl` キーの連打に変更。
 - ホットキーによるウィンドウ起動時、クリップボードへの `Ctrl+C` シミュレーション（自動コピー）の実行処理を廃止（安定性向上）。
 
+[0.3.4]: https://github.com/cwatanab/Clipper/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/cwatanab/Clipper/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/cwatanab/Clipper/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/cwatanab/Clipper/compare/v0.3.0...v0.3.1
